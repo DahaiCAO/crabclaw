@@ -1,4 +1,4 @@
-# 🦞 crabclaw — 个人 AI 助手框架
+# 🦀 crabclaw — 个人 AI 助手框架
  
 <p align="center">
   <picture>
