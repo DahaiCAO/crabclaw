@@ -37,12 +37,7 @@
 
 ## 📢 更新速报
 
-- **2026-02-28** 🚀 发布 **v0.1.4.post3**：更干净的上下文、更稳的会话历史、更聪明的 agent。详见 [release notes](https://github.com/HKUDS/crabclaw/releases/tag/v0.1.4.post3)。
-- **2026-02-27** 🧠 实验性思考模式、钉钉媒体消息、飞书与 QQ 修复。
-- **2026-02-26** 🛡️ 会话投毒修复、WhatsApp 去重、Windows 路径保护、Mistral 兼容。
-- **2026-02-25** 🧹 新 Matrix 通道、更清晰的 session context、自动 workspace 模板同步。
-- **2026-02-24** 🚀 发布 **v0.1.4.post2**：心跳重构、提示缓存优化、Provider/Channel 更加稳定。
-- **2026-02-21** 🎉 发布 **v0.1.4.post1**：新增 Provider、跨通道媒体支持、大幅可靠性提升。
+- **2026-03-09** 🚀 Beta **v0.0.1** 上线
 
 ## 🧠 HABOS：架构 2.0（双引擎 + 行为总调度器）
 
