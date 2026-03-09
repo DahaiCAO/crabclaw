@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>crabclaw Dashboard</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="title">🐈 crabclaw Dashboard</div>
+        <div class="subtitle">AI Assistant Control Panel</div>
+      </div>
+      <div class="status">
+        <div class="pill" id="conn-pill">WS: connecting…</div>
+        <div class="pill" id="ws-url-pill"></div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <div class="card-title">Internal State（实时快照）</div>
+        <pre class="pre" id="state-pre">{}</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-title">Audit Log（实时事件流）</div>
+        <div class="toolbar">
+          <div class="left">
+            <button id="clear-audit">清空</button>
+            <label class="chk">
+              <input type="checkbox" id="show-audit" checked />
+              audit
+            </label>
+            <label class="chk">
+              <input type="checkbox" id="show-reflection" checked />
+              reflection
+            </label>
+          </div>
+          <div class="right">
+            <input id="search" placeholder="搜索（匹配 JSON 文本）…" />
+            <label class="chk">
+              <input type="checkbox" id="auto-scroll" checked />
+              自动滚动
+            </label>
+          </div>
+        </div>
+        <div class="log" id="audit-log"></div>
+      </section>
+
+      <section class="card span2">
+        <div class="card-title">Chat Interface（AI 聊天）</div>
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input">
+            <input type="text" id="chat-input" placeholder="Type your message..." />
+            <button id="send-button">Send</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card span2">
+        <div class="card-title">Reflection（反思/自我优化事件）</div>
+        <div class="log" id="refl-log"></div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
