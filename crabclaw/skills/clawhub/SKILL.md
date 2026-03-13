@@ -12,7 +12,7 @@ Public skill registry for AI agents. Search by natural language (vector search).
 ## When to use
 
 Use this skill when the user asks any of:
-- "find a skill for â€?
+- "find a skill for <task>"
 - "search for skills"
 - "install a skill"
 - "what skills are available?"
@@ -49,5 +49,5 @@ npx --yes clawhub@latest list --workdir ~/.crabclaw/workspace
 - Requires Node.js (`npx` comes with it).
 - No API key needed for search and install.
 - Login (`npx --yes clawhub@latest login`) is only required for publishing.
-- `--workdir ~/.crabclaw/workspace` is critical â€?without it, skills install to the current directory instead of the crabclaw workspace.
+- `--workdir ~/.crabclaw/workspace` is critical - without it, skills install to the current directory instead of the crabclaw workspace.
 - After install, remind the user to start a new session to load the skill.

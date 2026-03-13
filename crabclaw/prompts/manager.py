@@ -30,7 +30,7 @@ class PromptManager:
                 with open(file_path, "r", encoding="utf-8") as f:
                     self.templates.update(json.load(f))
                 # logger.info(f"Loaded prompt templates from: {file_path}")
-            except (json.JSONDecodeError, IOError) as e:
+            except (json.JSONDecodeError, IOError):
                 # logger.error(f"Failed to load prompt templates from {file_path}: {e}")
                 pass
 
@@ -46,7 +46,7 @@ class PromptManager:
             return ""
         try:
             return template.format(**kwargs)
-        except KeyError as e:
+        except KeyError:
             # logger.error(f"Missing key '{e}' for formatting prompt template '{name}'")
             return ""
 
@@ -56,7 +56,7 @@ class PromptManager:
         这使得 ReflectionEngine 可以永久性地修改提示词。
         """
         file_path = self.templates_dir / file_name
-        
+
         user_templates = {}
         if file_path.exists():
             try:
@@ -77,6 +77,6 @@ class PromptManager:
             # logger.info(f"Saved prompt template '{name}' to {file_path}")
             # 重新加载以使更改生效
             self.templates.update(user_templates)
-        except IOError as e:
+        except IOError:
             # logger.error(f"Failed to save prompt template to {file_path}: {e}")
             pass

@@ -76,8 +76,8 @@ class LiteLLMProvider(LLMProvider):
             os.environ.setdefault(spec.env_key, api_key)
 
         # Resolve env_extras placeholders:
-        #   {api_key}  â†?user's API key
-        #   {api_base} â†?user's api_base, falling back to spec.default_api_base
+        #   {api_key}  -> user's API key
+        #   {api_base} -> user's api_base, falling back to spec.default_api_base
         effective_base = api_base or spec.default_api_base
         for env_name, env_val in spec.env_extras:
             resolved = env_val.replace("{api_key}", api_key)
@@ -232,11 +232,11 @@ class LiteLLMProvider(LLMProvider):
         # Pass extra headers (e.g. APP-Code for AiHubMix)
         if self.extra_headers:
             kwargs["extra_headers"] = self.extra_headers
-        
+
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
             kwargs["drop_params"] = True
-        
+
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -280,7 +280,7 @@ class LiteLLMProvider(LLMProvider):
 
         reasoning_content = getattr(message, "reasoning_content", None) or None
         thinking_blocks = getattr(message, "thinking_blocks", None) or None
-        
+
         return LLMResponse(
             content=message.content,
             tool_calls=tool_calls,

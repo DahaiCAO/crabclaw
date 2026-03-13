@@ -83,7 +83,7 @@ tmux -S "$SOCKET" send-keys -t agent-2 "cd /tmp/project2 && codex --yolo 'Fix bu
 
 # Poll for completion (check if prompt returned)
 for sess in agent-1 agent-2; do
-  if tmux -S "$SOCKET" capture-pane -p -t "$sess" -S -3 | grep -q "‚ù?; then
+  if tmux -S "$SOCKET" capture-pane -p -t "$sess" -S -3 | grep -q "‚ùØ"; then
     echo "$sess: DONE"
   else
     echo "$sess: Running..."

@@ -1,4 +1,4 @@
-"""Multimodal support for nanobot."""
+"""Multimodal support for Crabclaw."""
 
 import base64
 import io

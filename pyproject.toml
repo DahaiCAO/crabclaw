@@ -93,6 +93,15 @@ include = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [
+    "agent",
+    "skills",
+    "tests",
+    "fix_all_encoding.py",
+    "fix_loop.py",
+    "fix_loop2.py",
+    "fix_loop3.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]

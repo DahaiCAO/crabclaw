@@ -1,4 +1,4 @@
-"""CLI commands for nanobot."""
+"""CLI commands for Crabclaw."""
 
 import asyncio
 import os
@@ -20,12 +20,19 @@ from rich.text import Text
 from crabclaw import __logo__, __version__
 from crabclaw.config.loader import load_config
 from crabclaw.config.schema import Config
-from crabclaw.i18n.translator import set_language, translate
+from crabclaw.i18n.translator import detect_system_language, set_language, translate
 from crabclaw.utils.helpers import sync_workspace_templates
 
-# Load config and set language
+# Load config and set language (prefer system locale when config is default-en)
 config = load_config()
-set_language(config.language)
+_sys_lang = detect_system_language()
+_cfg_lang = getattr(config, "language", "en")
+_preferred_lang = _cfg_lang
+if _cfg_lang not in ("en", "zh"):
+    _preferred_lang = _sys_lang
+elif _cfg_lang == "en" and _sys_lang == "zh":
+    _preferred_lang = "zh"
+set_language(_preferred_lang)
 
 app = typer.Typer(
     name="crabclaw",
@@ -106,9 +113,11 @@ def _init_prompt_session() -> None:
 def _print_agent_response(response: str, render_markdown: bool) -> None:
     """Render assistant response with consistent terminal styling."""
     content = response or ""
+    if not content.strip():
+        content = translate("cli.agent.empty_response")
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    console.print(f"[cyan]{__logo__}[/cyan]")
     console.print(body)
     console.print()
 
@@ -218,13 +227,13 @@ def onboard_callback():
 @onboard_app.command()
 def setup():
     """Initialize and configure crabclaw (interactive wizard)."""
-    from crabclaw.config.loader import get_config_path, load_config, save_config
+    from crabclaw.config.loader import get_config_path, save_config
     from crabclaw.config.schema import Config
     from crabclaw.i18n.translator import get_supported_languages
     from crabclaw.utils.helpers import get_workspace_path
 
     config_path = get_config_path()
-    
+
     # Load existing config or create new one in memory
     if config_path.exists():
         console.print(f"[yellow]{translate('cli.onboard.config_exists', path=config_path)}[/yellow]")
@@ -246,14 +255,14 @@ def setup():
             language_display.append("English")
         elif lang == "zh":
             language_display.append("中文")
-    
+
     selected_language = _ask_choice(translate("cli.config.select_language"), language_display, 0)
     language_key = languages[language_display.index(selected_language)]
     config.language = language_key
-    
+
     # Update current session language
     set_language(language_key)
-    
+
     _print_success(translate("cli.config.language_selected", language=selected_language))
 
     _print_header(translate("cli.onboard.title"))
@@ -263,28 +272,27 @@ def setup():
     # Step 2: Select LLM Provider
     _print_step(2, total_steps, translate("cli.config.step_1_title"))
     console.print("\n" + translate("cli.config.select_provider"))
-    
+
     provider_names = list(PROVIDERS_INFO.keys())
     provider_display = []
     for p in provider_names:
-        info = PROVIDERS_INFO[p]
         provider_name = translate(f"providers.{p}.name")
         provider_desc = translate(f"providers.{p}.description")
         provider_display.append(f"{provider_name} - {provider_desc}")
-    
+
     selected_provider = _ask_choice(translate("cli.config.select_provider").strip(), provider_display, 0)
     provider_key = provider_names[provider_display.index(selected_provider)]
     provider_info = PROVIDERS_INFO[provider_key]
-    
+
     provider_name = translate(f"providers.{provider_key}.name")
     _print_success(translate("cli.config.selected_provider", provider=provider_name))
 
     # Step 3: Select Model
     _print_step(3, total_steps, translate("cli.config.step_2_title", provider=provider_name))
-    console.print(f"\n" + translate("cli.config.available_models", provider=provider_name) + "\n")
-    
+    console.print("\n" + translate("cli.config.available_models", provider=provider_name) + "\n")
+
     models = provider_info['models']
-    
+
     # If custom provider, let user enter custom model name
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_model_hint"))
@@ -293,35 +301,35 @@ def setup():
         selected_model = custom_model
     else:
         selected_model = _ask_choice(translate("cli.config.select_model"), models, 0)
-    
+
     # If custom provider, may need to configure base_url
     base_url = provider_info['default_base_url']
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_api_hint"))
-        custom_url = _ask_text(translate("cli.config.enter_base_url"), 
+        custom_url = _ask_text(translate("cli.config.enter_base_url"),
                                 default=base_url)
         base_url = custom_url
-    
+
     _print_success(translate("cli.config.selected_model", model=selected_model))
 
     # Step 4: Configure API Key
     _print_step(4, total_steps, translate("cli.config.step_3_title"))
-    
+
     if provider_info['api_key_url']:
-        console.print(f"\n" + translate("cli.config.get_api_key"))
+        console.print("\n" + translate("cli.config.get_api_key"))
         console.print(translate("cli.config.api_key_url", url=provider_info['api_key_url']))
-    
+
     api_key = _ask_password(translate("cli.config.enter_api_key"))
     _print_success(translate("cli.config.api_key_saved"))
 
     # Step 5: Configure Tools (optional)
     _print_step(5, total_steps, translate("cli.config.step_4_title"))
-    
+
     enable_exec = typer.confirm("\n" + translate("cli.config.enable_exec"), default=False)
-    
+
     if enable_exec:
         restrict_workspace = typer.confirm(translate("cli.config.restrict_workspace"), default=True)
-        
+
         if provider_key == "openrouter":
             # Configure proxy (optional)
             proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
@@ -330,9 +338,9 @@ def setup():
 
     # Step 6: Configure Web Search (optional)
     _print_step(6, total_steps, translate("cli.config.step_5_title"))
-    
+
     enable_web_search = typer.confirm("\n" + translate("cli.config.enable_web_search"), default=False)
-    
+
     if enable_web_search:
         console.print(translate("cli.config.brave_api_key_hint"))
         brave_api_key = _ask_text(translate("cli.config.enter_brave_api_key"), default="")
@@ -341,22 +349,22 @@ def setup():
         proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
         if proxy:
             config.tools.web.proxy = proxy
-    
+
     # Step 7: Configure MCP Servers (optional)
     _print_step(7, total_steps, translate("cli.config.step_6_title"))
-    
+
     configure_mcp = typer.confirm("\n" + translate("cli.config.configure_mcp"), default=False)
-    
+
     mcp_servers_config = {}
     while configure_mcp:
         console.print("\n" + translate("cli.config.mcp_server_name"))
         server_name = _ask_text(translate("cli.config.enter_mcp_server_name"), default="")
         if not server_name:
             break
-        
+
         console.print(translate("cli.config.mcp_connection_type"))
         conn_type = _ask_choice(translate("cli.config.select_connection_type"), ["Stdio", "HTTP"], 0)
-        
+
         if conn_type == "Stdio":
             console.print(translate("cli.config.mcp_command"))
             command = _ask_text(translate("cli.config.enter_mcp_command"), default="npx")
@@ -376,49 +384,49 @@ def setup():
                 "headers": {},
                 "tool_timeout": 30
             }
-        
+
         add_another = typer.confirm(translate("cli.config.add_another_mcp"), default=False)
         if not add_another:
             break
-    
+
     if mcp_servers_config:
         from crabclaw.config.schema import MCPServerConfig
         for name, cfg in mcp_servers_config.items():
             config.tools.mcp_servers[name] = MCPServerConfig(**cfg)
-    
+
     # Step 8: Configure Gateway (optional)
     _print_step(8, total_steps, translate("cli.config.step_7_title"))
-    
+
     configure_gateway = typer.confirm("\n" + translate("cli.config.configure_gateway"), default=False)
-    
+
     if configure_gateway:
         console.print("\n" + translate("cli.config.gateway_port_hint"))
         gateway_port = _ask_text(translate("cli.config.enter_gateway_port"), default="18790")
         if gateway_port.isdigit():
             config.gateway.port = int(gateway_port)
-        
+
         enable_heartbeat = typer.confirm(translate("cli.config.enable_heartbeat"), default=True)
         if enable_heartbeat:
             heartbeat_interval = _ask_text(translate("cli.config.enter_heartbeat_interval"), default="1800")
             if heartbeat_interval.isdigit():
                 config.gateway.heartbeat.interval_s = int(heartbeat_interval)
-    
+
     # Step 9: Configure Dashboard (optional)
     _print_step(9, total_steps, translate("cli.config.step_8_title"))
-    
+
     configure_dashboard = typer.confirm("\n" + translate("cli.config.configure_dashboard"), default=True)
-    
+
     if configure_dashboard:
         console.print("\n" + translate("cli.config.dashboard_port_hint"))
         dashboard_port = _ask_text(translate("cli.config.enter_dashboard_port"), default="18791")
         if dashboard_port.isdigit():
             config.dashboard.http_port = int(dashboard_port)
-    
+
     # Step 10: Configure Channels (optional)
     _print_step(10, total_steps, translate("cli.onboard.channels_step"))
-    
+
     configure_channels = typer.confirm("\n" + translate("cli.onboard.configure_channels"), default=False)
-    
+
     if configure_channels:
         # Telegram
         enable_telegram = typer.confirm(translate("cli.onboard.enable_telegram"), default=False)
@@ -427,7 +435,7 @@ def setup():
             if tg_token:
                 config.channels.telegram.enabled = True
                 config.channels.telegram.token = tg_token
-        
+
         # Discord
         enable_discord = typer.confirm(translate("cli.onboard.enable_discord"), default=False)
         if enable_discord:
@@ -435,7 +443,7 @@ def setup():
             if dc_token:
                 config.channels.discord.enabled = True
                 config.channels.discord.token = dc_token
-        
+
         # Slack
         enable_slack = typer.confirm(translate("cli.onboard.enable_slack"), default=False)
         if enable_slack:
@@ -443,14 +451,14 @@ def setup():
             if slack_bot_token:
                 config.channels.slack.enabled = True
                 config.channels.slack.bot_token = slack_bot_token
-        
+
         # WhatsApp
         enable_whatsapp = typer.confirm(translate("cli.onboard.enable_whatsapp"), default=False)
         if enable_whatsapp:
             wa_bridge_url = _ask_text(translate("cli.onboard.enter_whatsapp_bridge_url"), default="ws://localhost:3001")
             config.channels.whatsapp.enabled = True
             config.channels.whatsapp.bridge_url = wa_bridge_url
-        
+
         # Feishu
         enable_feishu = typer.confirm(translate("cli.onboard.enable_feishu"), default=False)
         if enable_feishu:
@@ -460,7 +468,7 @@ def setup():
                 config.channels.feishu.enabled = True
                 config.channels.feishu.app_id = fs_app_id
                 config.channels.feishu.app_secret = fs_app_secret
-        
+
         # DingTalk
         enable_dingtalk = typer.confirm(translate("cli.onboard.enable_dingtalk"), default=False)
         if enable_dingtalk:
@@ -470,7 +478,7 @@ def setup():
                 config.channels.dingtalk.enabled = True
                 config.channels.dingtalk.client_id = dt_client_id
                 config.channels.dingtalk.client_secret = dt_client_secret
-        
+
         # Email
         enable_email = typer.confirm(translate("cli.onboard.enable_email"), default=False)
         if enable_email:
@@ -493,12 +501,12 @@ def setup():
         from crabclaw.config.schema import ProviderConfig
         provider_config = ProviderConfig()
         setattr(config.providers, provider_key, provider_config)
-    
+
     provider_config.api_key = api_key
-    
+
     if base_url != provider_info['default_base_url']:
         provider_config.api_base = base_url
-    
+
     # Set default model
     if not config.agents:
         from crabclaw.config.schema import AgentsConfig
@@ -506,7 +514,7 @@ def setup():
     if not config.agents.defaults:
         from crabclaw.config.schema import AgentDefaultsConfig
         config.agents.defaults = AgentDefaultsConfig()
-    
+
     config.agents.defaults.model = selected_model
     config.agents.defaults.provider = provider_key
 
@@ -529,7 +537,7 @@ def setup():
     console.print(f"  Gateway: {'Enabled' if configure_gateway else 'Disabled'}")
     console.print(f"  Dashboard: {'Enabled' if configure_dashboard else 'Disabled'}")
     console.print(f"  Channels: {'Enabled' if configure_channels else 'Disabled'}")
-    
+
     if typer.confirm(f"\n{translate('cli.onboard.save_confirm')}", default=True):
         # Save config to file
         save_config(config)
@@ -707,7 +715,7 @@ def _ask_choice(prompt: str, options: list[str], default: int = 0) -> str:
     for i, option in enumerate(options, 1):
         marker = "[green]✓[/green] " if i == default + 1 else "  "
         console.print(f"{marker}{i}. {option}")
-    
+
     while True:
         try:
             choice = console.input(f"\n{translate('cli.config.enter_choice', min=1, max=len(options), default=default + 1)}").strip()
@@ -754,13 +762,13 @@ def _print_info(msg: str) -> None:
 @onboard_app.command("config")
 def onboard_config():
     """交互式配置向导 - 配置 crabclaw"""
-    from crabclaw.config.loader import get_config_path, load_config, save_config
+    from crabclaw.config.loader import get_config_path, save_config
     from crabclaw.config.schema import Config
     from crabclaw.i18n.translator import get_supported_languages
     from crabclaw.utils.helpers import get_workspace_path
 
     config_path = get_config_path()
-    
+
     if config_path.exists():
         console.print(f"[yellow]{translate('cli.config.found_config', path=config_path)}[/yellow]")
         if typer.confirm(translate("cli.config.reconfigure_confirm")):
@@ -773,7 +781,7 @@ def onboard_config():
 
     # Add language selection step
     total_steps = 5
-    
+
     # Step 1: Select Language
     _print_step(1, total_steps, translate("cli.config.language_step"))
     languages = get_supported_languages()
@@ -783,14 +791,14 @@ def onboard_config():
             language_display.append("English")
         elif lang == "zh":
             language_display.append("中文")
-    
+
     selected_language = _ask_choice(translate("cli.config.select_language"), language_display, 0)
     language_key = languages[language_display.index(selected_language)]
     config.language = language_key
-    
+
     # Update current session language
     set_language(language_key)
-    
+
     _print_success(translate("cli.config.language_selected", language=selected_language))
 
     _print_header(translate("cli.config.title"))
@@ -800,28 +808,27 @@ def onboard_config():
     # Step 2: 选择 LLM Provider
     _print_step(2, total_steps, translate("cli.config.step_1_title"))
     console.print("\n" + translate("cli.config.select_provider"))
-    
+
     provider_names = list(PROVIDERS_INFO.keys())
     provider_display = []
     for p in provider_names:
-        info = PROVIDERS_INFO[p]
         provider_name = translate(f"providers.{p}.name")
         provider_desc = translate(f"providers.{p}.description")
         provider_display.append(f"{provider_name} - {provider_desc}")
-    
+
     selected_provider = _ask_choice(translate("cli.config.select_provider").strip(), provider_display, 0)
     provider_key = provider_names[provider_display.index(selected_provider)]
     provider_info = PROVIDERS_INFO[provider_key]
-    
+
     provider_name = translate(f"providers.{provider_key}.name")
     _print_success(translate("cli.config.selected_provider", provider=provider_name))
 
     # Step 3: 选择模型
     _print_step(3, total_steps, translate("cli.config.step_2_title", provider=provider_name))
-    console.print(f"\n" + translate("cli.config.available_models", provider=provider_name) + "\n")
-    
+    console.print("\n" + translate("cli.config.available_models", provider=provider_name) + "\n")
+
     models = provider_info['models']
-    
+
     # 如果是 custom，让用户选择或输入自定义模型名
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_model_hint"))
@@ -830,35 +837,35 @@ def onboard_config():
         selected_model = custom_model
     else:
         selected_model = _ask_choice(translate("cli.config.select_model"), models, 0)
-    
+
     # 如果是 custom，可能需要配置 base_url
     base_url = provider_info['default_base_url']
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_api_hint"))
-        custom_url = _ask_text(translate("cli.config.enter_base_url"), 
+        custom_url = _ask_text(translate("cli.config.enter_base_url"),
                                 default=base_url)
         base_url = custom_url
-    
+
     _print_success(translate("cli.config.selected_model", model=selected_model))
 
     # Step 4: 配置 API Key
     _print_step(4, total_steps, translate("cli.config.step_3_title"))
-    
+
     if provider_info['api_key_url']:
-        console.print(f"\n" + translate("cli.config.get_api_key"))
+        console.print("\n" + translate("cli.config.get_api_key"))
         console.print(translate("cli.config.api_key_url", url=provider_info['api_key_url']))
-    
+
     api_key = _ask_password(translate("cli.config.enter_api_key"))
     _print_success(translate("cli.config.api_key_saved"))
 
     # Step 5: 配置工具（可选）
     _print_step(5, total_steps, translate("cli.config.step_4_title"))
-    
+
     enable_exec = typer.confirm("\n" + translate("cli.config.enable_exec"), default=False)
-    
+
     if enable_exec:
         restrict_workspace = typer.confirm(translate("cli.config.restrict_workspace"), default=True)
-        
+
         if provider_key == "openrouter":
             # 配置代理（可选）
             proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
@@ -872,12 +879,12 @@ def onboard_config():
         from crabclaw.config.schema import ProviderConfig
         provider_config = ProviderConfig()
         setattr(config.providers, provider_key, provider_config)
-    
+
     provider_config.api_key = api_key
-    
+
     if base_url != provider_info['default_base_url']:
         provider_config.api_base = base_url
-    
+
     # 设置默认模型
     if not config.agents:
         from crabclaw.config.schema import AgentsConfig
@@ -885,7 +892,7 @@ def onboard_config():
     if not config.agents.defaults:
         from crabclaw.config.schema import AgentDefaultsConfig
         config.agents.defaults = AgentDefaultsConfig()
-    
+
     config.agents.defaults.model = selected_model
     config.agents.defaults.provider = provider_key
 
@@ -905,7 +912,7 @@ def onboard_config():
         workspace.mkdir(parents=True, exist_ok=True)
 
     _print_header(translate("cli.config.config_completed"))
-    console.print(f"\n" + translate("cli.config.thank_you"))
+    console.print("\n" + translate("cli.config.thank_you"))
     console.print("\n" + translate("cli.config.next_steps"))
     console.print(translate("cli.config.start_chat"))
     console.print(translate("cli.config.start_gateway"))
@@ -964,8 +971,10 @@ def gateway(
     from crabclaw.agent.scheduler import BehaviorScheduler
 
     console.print(translate("cli.gateway.starting", logo=__logo__, port=port))
+    console.print("[dim]Dashboard (if enabled): http://127.0.0.1:18791/[/dim]")
 
     config = load_config()
+    config.gateway.port = port
     sync_workspace_templates(config.workspace_path)
 
     # 初始化总调度器，它将负责管理所有引擎
@@ -1047,7 +1056,7 @@ def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show Crabclaw runtime logs during chat"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -1097,7 +1106,7 @@ def agent(
             from contextlib import nullcontext
             return nullcontext()
         # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        return console.status(translate("cli.agent.thinking"), spinner="dots")
 
     async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
         ch = agent_loop.channels_config
@@ -1112,7 +1121,8 @@ def agent(
         async def run_once():
             with _thinking_ctx():
                 response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
-            _print_agent_response(response, render_markdown=markdown)
+            if response and getattr(response, "content", None):
+                _print_agent_response(response.content, render_markdown=markdown)
             await agent_loop.close_mcp()
 
         asyncio.run(run_once())
@@ -1334,7 +1344,7 @@ def _get_bridge_dir() -> Path:
         raise typer.Exit(1)
 
     # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
+    pkg_bridge = Path(__file__).parent.parent / "bridge"  # crabclaw/bridge (installed)
     src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
 
     source = None
@@ -1345,7 +1355,7 @@ def _get_bridge_dir() -> Path:
 
     if not source:
         console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall nanobot")
+        console.print("Try reinstalling: pip install --force-reinstall crabclaw-ai")
         raise typer.Exit(1)
 
     console.print(f"{__logo__} Setting up bridge...")
@@ -1408,7 +1418,9 @@ def onboard_channels_login():
 def status():
     """Show crabclaw status."""
     import socket
+
     import psutil
+
     from crabclaw.config.loader import get_config_path, load_config
 
     config_path = get_config_path()
@@ -1422,46 +1434,52 @@ def status():
 
     # Check running services
     console.print("\n[bold]Services Status:[/bold]")
-    
+
     # Check gateway service
     gateway_running = False
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
-        result = sock.connect_ex(('127.0.0.1', 18790))
+        result = sock.connect_ex(("127.0.0.1", config.gateway.port))
         gateway_running = result == 0
         sock.close()
     except:
         pass
-    
-    console.print(f"Gateway: {'[green]✓ Running[/green]' if gateway_running else '[dim]Not running[/dim]'} (port 18790)")
-    
+
+    console.print(
+        f"Gateway: {'[green]✓ Running[/green]' if gateway_running else '[dim]Not running[/dim]'} (port {config.gateway.port})"
+    )
+
     # Check dashboard service
     dashboard_running = False
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
-        result = sock.connect_ex(('127.0.0.1', 18791))
+        result = sock.connect_ex(("127.0.0.1", config.dashboard.http_port))
         dashboard_running = result == 0
         sock.close()
     except:
         pass
-    
-    console.print(f"Dashboard: {'[green]✓ Running[/green]' if dashboard_running else '[dim]Not running[/dim]'} (port 18791)")
-    
+
+    console.print(
+        f"Dashboard: {'[green]✓ Running[/green]' if dashboard_running else '[dim]Not running[/dim]'} (port {config.dashboard.http_port})"
+    )
+
     # Check WebSocket service
     ws_running = False
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
-        result = sock.connect_ex(('127.0.0.1', 18792))
+        result = sock.connect_ex(("127.0.0.1", config.dashboard.ws_port))
         ws_running = result == 0
         sock.close()
     except:
         pass
-    
-    console.print(f"WebSocket: {'[green]✓ Running[/green]' if ws_running else '[dim]Not running[/dim]'} (port 18792)")
-    
+
+    console.print(
+        f"WebSocket: {'[green]✓ Running[/green]' if ws_running else '[dim]Not running[/dim]'} (port {config.dashboard.ws_port})"
+    )
+
     # Check crabclaw processes
     console.print("\n[bold]Processes:[/bold]")
     crabclaw_processes = []
@@ -1471,7 +1489,7 @@ def status():
                 crabclaw_processes.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    
+
     if crabclaw_processes:
         for proc in crabclaw_processes:
             console.print(f"PID {proc.pid}: {' '.join(proc.cmdline())}")

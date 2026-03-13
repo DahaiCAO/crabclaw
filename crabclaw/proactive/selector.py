@@ -8,11 +8,11 @@ HABOS 架构 - 决策层 (Decision Layer) 的核心
 import json
 from typing import Dict, List, Optional
 
-from crabclaw.providers.base import LLMProvider
-from crabclaw.prompts.manager import PromptManager
 from crabclaw.proactive.library import ActionLibrary, BaseAction
 from crabclaw.proactive.state import InternalState
 from crabclaw.proactive.triggers import TriggerEvent
+from crabclaw.prompts.manager import PromptManager
+from crabclaw.providers.base import LLMProvider
 
 
 class ActionSelector:
@@ -66,7 +66,7 @@ class ActionSelector:
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             scores = json.loads(content)
-        except (json.JSONDecodeError, IndexError) as e:
+        except (json.JSONDecodeError, IndexError):
             # logger.error(f"Failed to parse LLM scoring response: {e}")
             scores = {} # 出错时返回空字典，避免崩溃
 

@@ -1,15 +1,15 @@
-"""Unified error handling and result types for nanobot."""
+"""Unified error handling and result types for Crabclaw."""
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeVar, Generic
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 E = TypeVar("E")
 
 
 class ErrorCode(Enum):
-    """Standard error codes for nanobot."""
+    """Standard error codes for Crabclaw."""
     UNKNOWN = "unknown"
     INVALID_INPUT = "invalid_input"
     NOT_FOUND = "not_found"
@@ -24,8 +24,8 @@ class ErrorCode(Enum):
 
 
 @dataclass
-class NanobotError(Exception):
-    """Base exception for nanobot errors."""
+class CrabclawError(Exception):
+    """Base exception for Crabclaw errors."""
     code: ErrorCode = ErrorCode.UNKNOWN
     message: str = ""
     details: dict | None = None
@@ -44,52 +44,52 @@ class NanobotError(Exception):
         }
 
 
-class InvalidInputError(NanobotError):
+class InvalidInputError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.INVALID_INPUT, details)
 
 
-class NotFoundError(NanobotError):
+class NotFoundError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.NOT_FOUND, details)
 
 
-class PermissionDeniedError(NanobotError):
+class PermissionDeniedError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.PERMISSION_DENIED, details)
 
 
-class TimeoutError(NanobotError):
+class TimeoutError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.TIMEOUT, details)
 
 
-class NetworkError(NanobotError):
+class NetworkError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.NETWORK_ERROR, details)
 
 
-class ExternalServiceError(NanobotError):
+class ExternalServiceError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.EXTERNAL_SERVICE_ERROR, details)
 
 
-class ConfigurationError(NanobotError):
+class ConfigurationError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.CONFIGURATION_ERROR, details)
 
 
-class ToolExecutionError(NanobotError):
+class ToolExecutionError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.TOOL_EXECUTION_ERROR, details)
 
 
-class SecurityViolationError(NanobotError):
+class SecurityViolationError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.SECURITY_VIOLATION, details)
 
 
-class RateLimitExceededError(NanobotError):
+class RateLimitExceededError(CrabclawError):
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, ErrorCode.RATE_LIMIT_EXCEEDED, details)
 
@@ -97,7 +97,7 @@ class RateLimitExceededError(NanobotError):
 class Result(Generic[T]):
     """Result type for explicit error handling without exceptions."""
 
-    def __init__(self, value: T | None = None, error: NanobotError | None = None):
+    def __init__(self, value: T | None = None, error: CrabclawError | None = None):
         self._value = value
         self._error = error
 
@@ -116,7 +116,7 @@ class Result(Generic[T]):
         return self._value  # type: ignore
 
     @property
-    def error(self) -> NanobotError | None:
+    def error(self) -> CrabclawError | None:
         return self._error
 
     def unwrap(self) -> T:
@@ -135,7 +135,7 @@ class Result(Generic[T]):
             try:
                 return Result(value=func(self._value))
             except Exception as e:
-                return Result(error=NanobotError(str(e)))
+                return Result(error=CrabclawError(str(e)))
         return self
 
     def map_error(self, func: callable) -> "Result":
@@ -152,9 +152,9 @@ class Result(Generic[T]):
         return cls(value=value)
 
     @classmethod
-    def failure(cls, error: NanobotError | str) -> "Result":
+    def failure(cls, error: CrabclawError | str) -> "Result":
         if isinstance(error, str):
-            error = NanobotError(error)
+            error = CrabclawError(error)
         return cls(error=error)
 
     def __repr__(self) -> str:

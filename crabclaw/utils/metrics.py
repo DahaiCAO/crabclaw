@@ -1,4 +1,4 @@
-"""Metrics and monitoring for nanobot."""
+"""Metrics and monitoring for Crabclaw."""
 
 import time
 from dataclasses import dataclass, field

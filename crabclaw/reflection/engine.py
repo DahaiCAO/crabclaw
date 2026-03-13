@@ -10,9 +10,9 @@ import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from crabclaw.providers.base import LLMProvider
-from crabclaw.prompts.manager import PromptManager
 from crabclaw.proactive.state import InternalState
+from crabclaw.prompts.manager import PromptManager
+from crabclaw.providers.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,11 @@ class ReflectionEngine:
         except FileNotFoundError:
             logger.warning(f"Audit log file not found at: {self.audit_log_path}")
             return []
-        
+
         if new_logs:
             # 更新处理时间戳到最新一条日志的时间
             self._last_log_timestamp_processed = new_logs[-1]["timestamp"]
-        
+
         return new_logs
 
     async def run_goal_oracle(self, user_request: str, agent_response: str) -> Optional[dict]:
@@ -115,7 +115,7 @@ class ReflectionEngine:
 
         for interaction in interactions:
             # 3. 对每个交互运行“目标预言机”
-            logger.debug(f"Running Goal Oracle for interaction...")
+            logger.debug("Running Goal Oracle for interaction...")
             oracle_result = await self.run_goal_oracle(
                 interaction["request"], interaction["response"]
             )
@@ -195,7 +195,7 @@ class ReflectionEngine:
             # 1. 创建一个隔离的模拟环境
             # 深度复制状态，确保模拟不影响真实状态
             virtual_state = self.state.model_copy(deep=True)
-            
+
             # 为本次模拟创建一个临时的、被修改过的 PromptManager
             virtual_prompt_manager = self._create_virtual_prompt_manager(hypothesis)
             if not virtual_prompt_manager:
@@ -248,7 +248,7 @@ class ReflectionEngine:
     ) -> "AgentLoop":
         """(简化版工厂) 创建一个用于模拟的被动引擎实例。"""
         from crabclaw.agent.loop import AgentLoop
-        
+
         # 注意：这里我们只替换了核心的 provider 和 workspace，
         # 一个完整的产品级实现需要处理所有依赖。
         return AgentLoop(
@@ -289,7 +289,7 @@ class ReflectionEngine:
                         logger.warning(f"Cannot apply arithmetic change to non-numeric state parameter '{hypo_target}'")
                 else:
                     logger.error(f"Attempted to adjust non-existent state parameter: {hypo_target}")
-            
+
             elif hypo_type == "prompt_template_modification":
                 self.prompt_manager.save_template(hypo_target, hypo_change)
                 logger.info(f"Applied prompt modification for '{hypo_target}'.")

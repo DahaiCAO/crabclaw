@@ -21,10 +21,15 @@ function addChatMessage(content, isUser) {
   const messageDiv = document.createElement("div");
   messageDiv.className = `chat-message ${isUser ? "user" : "assistant"}`;
   
+  const avatarDiv = document.createElement("div");
+  avatarDiv.className = "message-avatar";
+  avatarDiv.textContent = isUser ? "👤" : "🦀";
+  
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
   contentDiv.textContent = content;
   
+  messageDiv.appendChild(avatarDiv);
   messageDiv.appendChild(contentDiv);
   chatMessages.appendChild(messageDiv);
   
@@ -64,6 +69,114 @@ chatInput.addEventListener("keypress", (e) => {
     sendButton.click();
   }
 });
+
+// Theme toggle
+function initTheme() {
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+  document.body.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  
+  // Update theme buttons
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === theme);
+  });
+}
+
+// Theme button click handlers
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('theme-btn')) {
+    setTheme(e.target.dataset.theme);
+  }
+});
+
+// Initialize theme on load
+initTheme();
+
+// Menu navigation
+const menuItems = document.querySelectorAll('.menu-item');
+const contentSections = document.querySelectorAll('.content-section');
+
+menuItems.forEach(item => {
+  item.addEventListener('click', () => {
+    const sectionId = item.dataset.section;
+    
+    // Update menu items
+    menuItems.forEach(menu => menu.classList.remove('active'));
+    item.classList.add('active');
+    
+    // Update content sections
+    contentSections.forEach(section => {
+      section.classList.remove('active');
+      if (section.id === `section-${sectionId}`) {
+        section.classList.add('active');
+      }
+    });
+    
+    // Load data for specific sections
+    if (sectionId === 'providers') {
+      loadProviders();
+    } else if (sectionId === 'config') {
+      loadConfig();
+    }
+  });
+});
+
+function loadProviders() {
+  const providersList = document.getElementById('providers-list');
+  if (!providersList) return;
+  
+  if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+    window.ws.send(JSON.stringify({ type: 'get_providers' }));
+  } else {
+    providersList.innerHTML = '<div class="provider-item"><span class="provider-status error"></span><span class="provider-name">WebSocket not connected</span></div>';
+  }
+}
+
+function loadConfig() {
+  const configPre = document.getElementById('config-pre');
+  if (!configPre) return;
+  
+  if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+    window.ws.send(JSON.stringify({ type: 'get_config' }));
+  } else {
+    configPre.textContent = 'WebSocket not connected';
+  }
+}
+
+function renderProviders(providers) {
+  const providersList = document.getElementById('providers-list');
+  if (!providersList) return;
+  
+  providersList.innerHTML = '';
+  
+  if (!providers || providers.length === 0) {
+    providersList.innerHTML = '<div class="provider-item"><span class="provider-status"></span><span class="provider-name">No providers configured</span></div>';
+    return;
+  }
+  
+  providers.forEach(provider => {
+    const item = document.createElement('div');
+    item.className = 'provider-item';
+    item.innerHTML = `
+      <span class="provider-status ${provider.status || ''}"></span>
+      <span class="provider-name">${provider.name}</span>
+      <span class="provider-info">${provider.model || ''}</span>
+    `;
+    providersList.appendChild(item);
+  });
+}
+
+function renderConfig(config) {
+  const configPre = document.getElementById('config-pre');
+  if (!configPre) return;
+  
+  configPre.textContent = JSON.stringify(config, null, 2);
+}
 
 const _buffer = [];
 const _MAX = 800;
@@ -194,6 +307,21 @@ function connect(){
       _buffer.push({kind: "reflection", payload: data});
       if (_buffer.length > _MAX) _buffer.shift();
       renderEvent("reflection", data);
+      return;
+    }
+
+    if (type === "providers"){
+      renderProviders(data.providers || []);
+      return;
+    }
+
+    if (type === "config"){
+      renderConfig(data);
+      return;
+    }
+
+    if (type === "chat_response"){
+      addChatMessage(data.response, false);
       return;
     }
 

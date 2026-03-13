@@ -7,7 +7,6 @@ from typing import Any
 
 from loguru import logger
 
-from crabclaw.bus.events import OutboundMessage
 from crabclaw.bus.queue import MessageBus
 from crabclaw.channels.base import BaseChannel
 from crabclaw.config.schema import Config
@@ -28,6 +27,7 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self._stop_event = asyncio.Event()
 
         self._init_channels()
 
@@ -170,6 +170,10 @@ class ChannelManager:
         """Start all channels and the outbound dispatcher."""
         if not self.channels:
             logger.warning("No channels enabled")
+            try:
+                await self._stop_event.wait()
+            except asyncio.CancelledError:
+                pass
             return
 
         # Start outbound dispatcher
@@ -187,6 +191,7 @@ class ChannelManager:
     async def stop_all(self) -> None:
         """Stop all channels and the dispatcher."""
         logger.info("Stopping all channels...")
+        self._stop_event.set()
 
         # Stop dispatcher
         if self._dispatch_task:

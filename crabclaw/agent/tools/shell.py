@@ -415,7 +415,8 @@ class ExecTool(Tool):
         
         return None
 
-    def _extract_absolute_paths(self, command: str) -> list[str]:
+    @staticmethod
+    def _extract_absolute_paths(command: str) -> list[str]:
         """Extract absolute paths from command."""
         # Windows paths: C:\...
         win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)

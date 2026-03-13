@@ -1,6 +1,6 @@
 """
-nanobot - A lightweight AI agent framework
+Crabclaw - A personal AI mate
 """
 
 __version__ = "0.1.4.post3"
-__logo__ = "🐈"
+__logo__ = "🦀 Crabclaw"

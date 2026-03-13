@@ -15,7 +15,7 @@ class BaseChannel(ABC):
     Abstract base class for chat channel implementations.
 
     Each channel (Telegram, Discord, etc.) should implement this interface
-    to integrate with the nanobot message bus.
+    to integrate with the Crabclaw message bus.
     """
 
     name: str = "base"
@@ -31,7 +31,7 @@ class BaseChannel(ABC):
         self.config = config
         self.bus = bus
         self._running = False
-        
+
         # Initialize access control with rate limiting
         allow_from = getattr(config, "allow_from", [])
         rate_limit_config = RateLimitConfig(

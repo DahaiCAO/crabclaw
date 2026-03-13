@@ -3,70 +3,197 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>crabclaw Dashboard</title>
+    <title>Crabclaw Dashboard</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
-        <div class="title">🐈 crabclaw Dashboard</div>
+        <div class="title">🦀 Crabclaw Dashboard</div>
         <div class="subtitle">AI Assistant Control Panel</div>
       </div>
       <div class="status">
         <div class="pill" id="conn-pill">WS: connecting…</div>
         <div class="pill" id="ws-url-pill"></div>
+        <div class="theme-switch">
+          <button class="theme-btn active" data-theme="dark" title="Dark Mode">🌙</button>
+          <button class="theme-btn" data-theme="light" title="Light Mode">☀️</button>
+        </div>
       </div>
     </header>
 
-    <main class="grid">
-      <section class="card">
-        <div class="card-title">Internal State（实时快照）</div>
-        <pre class="pre" id="state-pre">{}</pre>
-      </section>
-
-      <section class="card">
-        <div class="card-title">Audit Log（实时事件流）</div>
-        <div class="toolbar">
-          <div class="left">
-            <button id="clear-audit">清空</button>
-            <label class="chk">
-              <input type="checkbox" id="show-audit" checked />
-              audit
-            </label>
-            <label class="chk">
-              <input type="checkbox" id="show-reflection" checked />
-              reflection
-            </label>
+    <div class="layout">
+      <aside class="sidebar">
+        <nav class="menu">
+          <div class="menu-item active" data-section="chat">
+            <span class="menu-icon">💬</span>
+            <span class="menu-text">Chat Interface</span>
           </div>
-          <div class="right">
-            <input id="search" placeholder="搜索（匹配 JSON 文本）…" />
-            <label class="chk">
-              <input type="checkbox" id="auto-scroll" checked />
-              自动滚动
-            </label>
+          <div class="menu-item" data-section="state">
+            <span class="menu-icon">📊</span>
+            <span class="menu-text">Internal State</span>
           </div>
-        </div>
-        <div class="log" id="audit-log"></div>
-      </section>
-
-      <section class="card span2">
-        <div class="card-title">Chat Interface（AI 聊天）</div>
-        <div class="chat-container">
-          <div class="chat-messages" id="chat-messages"></div>
-          <div class="chat-input">
-            <input type="text" id="chat-input" placeholder="Type your message..." />
-            <button id="send-button">Send</button>
+          <div class="menu-item" data-section="audit">
+            <span class="menu-icon">📋</span>
+            <span class="menu-text">Audit Log</span>
           </div>
-        </div>
-      </section>
+          <div class="menu-item" data-section="reflection">
+            <span class="menu-icon">🧠</span>
+            <span class="menu-text">Reflection</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-item" data-section="settings">
+            <span class="menu-icon">⚙️</span>
+            <span class="menu-text">Settings</span>
+          </div>
+          <div class="menu-item" data-section="providers">
+            <span class="menu-icon">🔌</span>
+            <span class="menu-text">Providers</span>
+          </div>
+          <div class="menu-item" data-section="config">
+            <span class="menu-icon">📝</span>
+            <span class="menu-text">Configuration</span>
+          </div>
+        </nav>
+      </aside>
 
-      <section class="card span2">
-        <div class="card-title">Reflection（反思/自我优化事件）</div>
-        <div class="log" id="refl-log"></div>
-      </section>
-    </main>
+      <main class="content">
+        <section class="content-section active" id="section-chat">
+          <div class="card">
+            <div class="card-title">Chat Interface（AI 聊天）</div>
+            <div class="chat-container">
+              <div class="chat-messages" id="chat-messages"></div>
+              <div class="chat-input">
+                <input type="text" id="chat-input" placeholder="Type your message..." />
+                <button id="send-button">Send</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-state">
+          <div class="card">
+            <div class="card-title">Internal State（实时快照）</div>
+            <pre class="pre" id="state-pre">{}</pre>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-audit">
+          <div class="card">
+            <div class="card-title">Audit Log（实时事件流）</div>
+            <div class="toolbar">
+              <div class="left">
+                <button id="clear-audit">清空</button>
+                <label class="chk">
+                  <input type="checkbox" id="show-audit" checked />
+                  audit
+                </label>
+                <label class="chk">
+                  <input type="checkbox" id="show-reflection" checked />
+                  reflection
+                </label>
+              </div>
+              <div class="right">
+                <input id="search" placeholder="搜索（匹配 JSON 文本）…" />
+                <label class="chk">
+                  <input type="checkbox" id="auto-scroll" checked />
+                  自动滚动
+                </label>
+              </div>
+            </div>
+            <div class="log" id="audit-log"></div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-reflection">
+          <div class="card">
+            <div class="card-title">Reflection（反思/自我优化事件）</div>
+            <div class="log" id="refl-log"></div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-settings">
+          <div class="card">
+            <div class="card-title">Settings（设置）</div>
+            <div class="settings-content">
+              <div class="setting-group">
+                <h3>Appearance / 外观</h3>
+                <div class="setting-row">
+                  <span>Theme / 主题:</span>
+                  <div class="theme-toggle">
+                    <button class="theme-btn active" data-theme="dark" title="Dark Mode">
+                      🌙 Dark
+                    </button>
+                    <button class="theme-btn" data-theme="light" title="Light Mode">
+                      ☀️ Light
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-group">
+                <h3>Language / 语言</h3>
+                <div class="setting-row">
+                  <label>
+                    <input type="radio" name="language" value="en" checked />
+                    English
+                  </label>
+                  <label>
+                    <input type="radio" name="language" value="zh" />
+                    中文
+                  </label>
+                </div>
+              </div>
+              <div class="setting-group">
+                <h3>Display / 显示</h3>
+                <div class="setting-row">
+                  <label>
+                    <input type="checkbox" id="setting-auto-scroll" checked />
+                    Auto Scroll / 自动滚动
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <label>
+                    <input type="checkbox" id="setting-show-timestamp" checked />
+                    Show Timestamp / 显示时间戳
+                  </label>
+                </div>
+              </div>
+              <div class="setting-group">
+                <h3>Connection / 连接</h3>
+                <div class="setting-row">
+                  <span>WebSocket URL:</span>
+                  <code id="ws-url-display">ws://127.0.0.1:18792/ws</code>
+                </div>
+                <div class="setting-row">
+                  <span>HTTP URL:</span>
+                  <code id="http-url-display">http://127.0.0.1:18791/</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-providers">
+          <div class="card">
+            <div class="card-title">Providers（LLM 提供商状态）</div>
+            <div class="providers-content" id="providers-list">
+              <div class="provider-item">
+                <span class="provider-status loading"></span>
+                <span class="provider-name">Loading...</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-config">
+          <div class="card">
+            <div class="card-title">Configuration（配置信息）</div>
+            <pre class="pre" id="config-pre">Loading...</pre>
+          </div>
+        </section>
+      </main>
+    </div>
 
     <script src="./app.js"></script>
   </body>
 </html>
-

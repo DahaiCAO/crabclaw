@@ -1,4 +1,4 @@
-"""Test fixtures for nanobot."""
+"""Test fixtures for Crabclaw."""
 
 import asyncio
 from dataclasses import dataclass, field

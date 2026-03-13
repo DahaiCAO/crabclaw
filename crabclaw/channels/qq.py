@@ -31,7 +31,7 @@ def _make_bot_class(channel: "QQChannel") -> "type[botpy.Client]":
 
     class _Bot(botpy.Client):
         def __init__(self):
-            # Disable botpy's file log -nanobot uses loguru; default "botpy.log" fails on read-only fs
+            # Disable botpy's file log -Crabclaw uses loguru; default "botpy.log" fails on read-only fs
             super().__init__(intents=intents, ext_handlers=False)
 
         async def on_ready(self):
@@ -68,8 +68,8 @@ class QQChannel(BaseChannel):
             return
 
         self._running = True
-        BotClass = _make_bot_class(self)
-        self._client = BotClass()
+        bot_class = _make_bot_class(self)
+        self._client = bot_class()
 
         logger.info("QQ bot started (C2C private message)")
         await self._run_bot()

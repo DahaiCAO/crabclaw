@@ -17,10 +17,10 @@ runner = CliRunner()
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
-    with patch("nanobot.config.loader.get_config_path") as mock_cp, \
-         patch("nanobot.config.loader.save_config") as mock_sc, \
-         patch("nanobot.config.loader.load_config") as mock_lc, \
-         patch("nanobot.utils.helpers.get_workspace_path") as mock_ws:
+    with patch("crabclaw.config.loader.get_config_path") as mock_cp, \
+         patch("crabclaw.config.loader.save_config") as mock_sc, \
+         patch("crabclaw.config.loader.load_config") as mock_lc, \
+         patch("crabclaw.utils.helpers.get_workspace_path") as mock_ws:
 
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
@@ -41,7 +41,7 @@ def mock_paths():
 
 
 def test_onboard_fresh_install(mock_paths):
-    """No existing config â€?should create from scratch."""
+    """No existing config - should create from scratch."""
     config_file, workspace_dir = mock_paths
 
     result = runner.invoke(app, ["onboard"])
@@ -49,14 +49,14 @@ def test_onboard_fresh_install(mock_paths):
     assert result.exit_code == 0
     assert "Created config" in result.stdout
     assert "Created workspace" in result.stdout
-    assert "nanobot is ready" in result.stdout
+    assert "crabclaw is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
 
 
 def test_onboard_existing_config_refresh(mock_paths):
-    """Config exists, user declines overwrite â€?should refresh (load-merge-save)."""
+    """Config exists, user declines overwrite - should refresh (load-merge-save)."""
     config_file, workspace_dir = mock_paths
     config_file.write_text('{"existing": true}')
 
@@ -70,7 +70,7 @@ def test_onboard_existing_config_refresh(mock_paths):
 
 
 def test_onboard_existing_config_overwrite(mock_paths):
-    """Config exists, user confirms overwrite â€?should reset to defaults."""
+    """Config exists, user confirms overwrite - should reset to defaults."""
     config_file, workspace_dir = mock_paths
     config_file.write_text('{"existing": true}')
 
@@ -83,7 +83,7 @@ def test_onboard_existing_config_overwrite(mock_paths):
 
 
 def test_onboard_existing_workspace_safe_create(mock_paths):
-    """Workspace exists â€?should not recreate, but still add missing templates."""
+    """Workspace exists - should not recreate, but still add missing templates."""
     config_file, workspace_dir = mock_paths
     workspace_dir.mkdir(parents=True)
     config_file.write_text("{}")

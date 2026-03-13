@@ -75,9 +75,45 @@ class DashboardServer:
             q = await self.broadcaster.register()
             try:
                 await ws.send(json.dumps({"type": "hello", "data": {"ws": self.ws_url}}, ensure_ascii=False))
-                while True:
-                    msg = await q.get()
-                    await ws.send(msg)
+                
+                async def broadcast_loop():
+                    while True:
+                        msg = await q.get()
+                        await ws.send(msg)
+                
+                async def handle_messages():
+                    async for msg in ws:
+                        try:
+                            data = json.loads(msg)
+                            msg_type = data.get("type")
+                            
+                            if msg_type == "get_providers":
+                                providers = self._get_providers()
+                                await ws.send(json.dumps({
+                                    "type": "providers",
+                                    "data": {"providers": providers}
+                                }, ensure_ascii=False))
+                            
+                            elif msg_type == "get_config":
+                                config_data = self._get_config()
+                                await ws.send(json.dumps({
+                                    "type": "config",
+                                    "data": config_data
+                                }, ensure_ascii=False))
+                            
+                            elif msg_type == "chat_message":
+                                chat_data = data.get("data", {})
+                                response = await self._process_chat_message(chat_data.get("message", ""))
+                                await ws.send(json.dumps({
+                                    "type": "chat_response",
+                                    "data": {"response": response}
+                                }, ensure_ascii=False))
+                                
+                        except json.JSONDecodeError:
+                            pass
+                
+                await asyncio.gather(broadcast_loop(), handle_messages())
+                
             except Exception:
                 pass
             finally:
@@ -86,6 +122,108 @@ class DashboardServer:
         self._ws_server = await serve(_handler, self.config.host, self.config.ws_port)
         logger.info("Dashboard WS serving {}", self.ws_url)
         await self._ws_server.wait_closed()
+    
+    def _get_providers(self) -> list:
+        try:
+            from crabclaw.config.loader import load_config
+            config = load_config()
+            from crabclaw.providers.registry import PROVIDERS
+            
+            providers = []
+            for spec in PROVIDERS:
+                p = getattr(config.providers, spec.name, None)
+                if p is None:
+                    continue
+                status = "ok" if (p.api_key or spec.is_oauth or p.api_base) else "error"
+                providers.append({
+                    "name": spec.label,
+                    "model": getattr(p, "model", ""),
+                    "status": status
+                })
+            return providers
+        except Exception as e:
+            logger.error("Failed to get providers: {}", e)
+            return [{"name": "Error", "status": "error", "model": str(e)}]
+    
+    def _get_config(self) -> dict:
+        try:
+            from crabclaw.config.loader import load_config
+            config = load_config()
+            return {
+                "workspace": str(config.workspace_path),
+                "model": config.agents.defaults.model,
+                "language": getattr(config, "language", "en"),
+                "channels": list(config.channels.enabled) if hasattr(config, "channels") else [],
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _process_chat_message(self, message: str) -> str:
+        try:
+            from crabclaw.agent.loop import AgentLoop
+            from crabclaw.bus.events import InboundMessage
+            from crabclaw.bus.queue import MessageBus
+            from crabclaw.config.loader import load_config
+            
+            # Create persistent bus and loop instances once
+            if not hasattr(self, "_bus") or not hasattr(self, "_loop"):
+                config = load_config()
+                self._bus = MessageBus()
+                self._loop = AgentLoop(
+                    bus=self._bus,
+                    provider=self._get_llm_provider(),
+                    workspace=config.workspace_path,
+                )
+            
+            inbound = InboundMessage(
+                channel="dashboard",
+                sender_id="dashboard_user",
+                chat_id="dashboard",
+                content=message,
+            )
+            
+            # Use process_direct instead of process_message
+            response = await self._loop.process_direct(
+                content=message,
+                session_key="dashboard",
+                channel="dashboard"
+            )
+            return response.content if response else "No response"
+        except Exception as e:
+            logger.error("Chat processing error: {}", e)
+            return f"Error: {str(e)}"
+    
+    def _get_llm_provider(self):
+        try:
+            from crabclaw.config.loader import load_config
+            from crabclaw.providers.litellm_provider import LiteLLMProvider
+            
+            config = load_config()
+            
+            # Try to find the configured provider
+            for provider_name in dir(config.providers):
+                if provider_name.startswith('_'):
+                    continue
+                
+                provider_config = getattr(config.providers, provider_name)
+                if hasattr(provider_config, 'api_key') and provider_config.api_key:
+                    return LiteLLMProvider(
+                        api_key=provider_config.api_key,
+                        api_base=getattr(provider_config, 'api_base', None),
+                        default_model=config.agents.defaults.model,
+                        provider_name=provider_name
+                    )
+            
+            # Fallback to custom provider
+            provider_config = config.providers.custom
+            return LiteLLMProvider(
+                api_key=provider_config.api_key,
+                api_base=provider_config.api_base,
+                default_model=config.agents.defaults.model,
+            )
+        except Exception as e:
+            logger.error("Failed to get LLM provider: {}", e)
+            return None
 
     async def start(self) -> None:
         if not self.config.enabled:

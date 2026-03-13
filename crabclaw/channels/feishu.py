@@ -331,7 +331,7 @@ class FeishuChannel(BaseChannel):
         """
         Stop the Feishu bot.
 
-        Notice: lark.ws.Client does not expose stop methodï¼?simply exiting the program will close the client.
+        Notice: lark.ws.Client does not expose stop method - simply exiting the program will close the client.
 
         Reference: https://github.com/larksuite/oapi-sdk-python/blob/v2_main/lark_oapi/ws/client.py#L86
         """

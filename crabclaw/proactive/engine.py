@@ -9,14 +9,14 @@ import logging
 import time
 from typing import Optional
 
+from crabclaw.agent.tools.registry import ToolRegistry
 from crabclaw.bus.queue import MessageBus
-from crabclaw.providers.base import LLMProvider
-from crabclaw.prompts.manager import PromptManager
 from crabclaw.proactive.library import ActionLibrary
 from crabclaw.proactive.selector import ActionSelector
 from crabclaw.proactive.state import InternalState
-from crabclaw.agent.tools.registry import ToolRegistry
 from crabclaw.proactive.triggers import TriggerSystem
+from crabclaw.prompts.manager import PromptManager
+from crabclaw.providers.base import LLMProvider
 
 # 配置日志记录器
 logger = logging.getLogger(__name__)

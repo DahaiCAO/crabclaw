@@ -6,7 +6,7 @@ import os
 import stat
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -44,7 +44,7 @@ class AuditEvent:
     session_id: str | None = None
     ip_address: str | None = None
     user_agent: str | None = None
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -60,14 +60,14 @@ class AuditEvent:
             "ip_address": self._mask_ip(self.ip_address),
             "user_agent": self.user_agent,
         }
-    
+
     def _sanitize_id(self, id_str: str | None) -> str | None:
         """Sanitize ID for logging."""
         if not id_str:
             return None
         # Hash the ID for privacy
         return hashlib.sha256(id_str.encode()).hexdigest()[:16]
-    
+
     def _sanitize_resource(self, resource: str | None) -> str | None:
         """Sanitize resource path."""
         if not resource:
@@ -76,12 +76,12 @@ class AuditEvent:
         home = str(Path.home())
         resource = resource.replace(home, "~")
         return resource
-    
+
     def _sanitize_details(self, details: dict[str, Any]) -> dict[str, Any]:
         """Sanitize sensitive details."""
         sanitized = {}
         sensitive_keys = {'password', 'secret', 'token', 'key', 'api_key', 'credential', 'auth'}
-        
+
         for key, value in details.items():
             if any(s in key.lower() for s in sensitive_keys):
                 sanitized[key] = "***REDACTED***"
@@ -89,9 +89,9 @@ class AuditEvent:
                 sanitized[key] = value[:1000] + "... [truncated]"
             else:
                 sanitized[key] = value
-        
+
         return sanitized
-    
+
     def _mask_ip(self, ip: str | None) -> str | None:
         """Mask IP address for privacy."""
         if not ip:
@@ -104,7 +104,7 @@ class AuditEvent:
 
 class SecureAuditLogger:
     """Secure audit logger with integrity protection."""
-    
+
     def __init__(
         self,
         log_dir: Path | str | None = None,
@@ -117,36 +117,36 @@ class SecureAuditLogger:
         self.max_file_size = max_file_size
         self.max_files = max_files
         self.enable_console = enable_console
-        
+
         self._lock = threading.Lock()
         self._current_file: Path | None = None
         self._current_size = 0
         self._event_count = 0
         self._last_rotation = time.time()
-        
+
         # Initialize log file
         self._rotate_if_needed()
-        
+
         # Set secure permissions on log directory
         self._set_secure_permissions()
-    
+
     def _set_secure_permissions(self) -> None:
         """Set secure permissions on log directory and files."""
         try:
             # Set directory permissions to 700 (owner only)
             os.chmod(self.log_dir, stat.S_IRWXU)
-            
+
             # Set permissions on existing log files
             for log_file in self.log_dir.glob("audit_*.log"):
                 os.chmod(log_file, stat.S_IRUSR | stat.S_IWUSR)  # 600
         except Exception as e:
             logger.warning(f"Failed to set secure permissions on audit log: {e}")
-    
+
     def _get_log_file(self) -> Path:
         """Get current log file path."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return self.log_dir / f"audit_{timestamp}.log"
-    
+
     def _rotate_if_needed(self) -> None:
         """Rotate log file if needed."""
         need_rotation = (
@@ -154,13 +154,13 @@ class SecureAuditLogger:
             self._current_size >= self.max_file_size or
             (time.time() - self._last_rotation) > 86400  # Rotate daily
         )
-        
+
         if need_rotation:
             self._current_file = self._get_log_file()
             self._current_size = 0
             self._last_rotation = time.time()
             self._cleanup_old_files()
-    
+
     def _cleanup_old_files(self) -> None:
         """Remove old log files."""
         try:
@@ -169,36 +169,36 @@ class SecureAuditLogger:
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
-            
+
             for old_file in log_files[self.max_files:]:
                 old_file.unlink()
                 logger.debug(f"Removed old audit log: {old_file}")
         except Exception as e:
             logger.warning(f"Failed to cleanup old audit logs: {e}")
-    
+
     def log(self, event: AuditEvent) -> None:
         """Log an audit event."""
         with self._lock:
             self._rotate_if_needed()
-            
+
             # Write event to log file
             event_dict = event.to_dict()
             event_json = json.dumps(event_dict, ensure_ascii=False)
-            
+
             try:
                 with open(self._current_file, 'a', encoding='utf-8') as f:
                     f.write(event_json + '\n')
-                
+
                 self._current_size += len(event_json) + 1
                 self._event_count += 1
-                
+
                 # Also log to console if enabled
                 if self.enable_console:
                     logger.info(f"AUDIT: {event.event_type.value} - {event.action}")
-                    
+
             except Exception as e:
                 logger.error(f"Failed to write audit log: {e}")
-    
+
     def log_security_event(
         self,
         event_type: AuditEventType,
@@ -221,7 +221,7 @@ class SecureAuditLogger:
             **kwargs
         )
         self.log(event)
-    
+
     def get_recent_events(
         self,
         event_type: AuditEventType | None = None,
@@ -230,41 +230,41 @@ class SecureAuditLogger:
     ) -> list[AuditEvent]:
         """Get recent audit events."""
         events = []
-        
+
         try:
             log_files = sorted(
                 self.log_dir.glob("audit_*.log"),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
-            
+
             for log_file in log_files:
                 with open(log_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         try:
                             event_dict = json.loads(line.strip())
-                            
+
                             # Filter by type
                             if event_type and event_dict.get('event_type') != event_type.value:
                                 continue
-                            
+
                             # Filter by time
                             if since and event_dict.get('timestamp', 0) < since:
                                 continue
-                            
+
                             events.append(event_dict)
-                            
+
                             if len(events) >= limit:
                                 return events
-                                
+
                         except json.JSONDecodeError:
                             continue
-                            
+
         except Exception as e:
             logger.error(f"Failed to read audit logs: {e}")
-        
+
         return events
-    
+
     def get_stats(self) -> dict[str, Any]:
         """Get audit logger statistics."""
         return {
@@ -330,7 +330,7 @@ def audit_log(
 
 class SensitiveDataFilter:
     """Filter for masking sensitive data in logs."""
-    
+
     SENSITIVE_PATTERNS = [
         (r'api[_-]?key[=:]\s*["\']?[\w-]+["\']?', 'api_key=***'),
         (r'password[=:]\s*["\']?[^"\'\s]+["\']?', 'password=***'),
@@ -340,7 +340,7 @@ class SensitiveDataFilter:
         (r'Basic\s+[A-Za-z0-9+/=]+', 'Basic ***'),
         (r'sk-[a-zA-Z0-9]{20,}', 'sk-***'),
     ]
-    
+
     @classmethod
     def filter(cls, message: str) -> str:
         """Filter sensitive data from message."""

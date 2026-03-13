@@ -184,7 +184,12 @@ class AgentLoop:
         """Remove blocks that some models embed in content."""
         if not text:
             return None
-        return re.sub(r"[\s\S]*?", "", text).strip() or None
+        out = text
+        out = re.sub(r"<think>[\s\S]*?</think>", "", out, flags=re.IGNORECASE)
+        out = re.sub(r"<thinking>[\s\S]*?</thinking>", "", out, flags=re.IGNORECASE)
+        out = re.sub(r"<analysis>[\s\S]*?</analysis>", "", out, flags=re.IGNORECASE)
+        out = re.sub(r"```(?:thinking|analysis)[\s\S]*?```", "", out, flags=re.IGNORECASE)
+        return out.strip() or None
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
@@ -444,7 +449,7 @@ class AgentLoop:
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new - Start a new conversation\n/stop - Stop current task\n/help - Show available commands")
+                                  content="🦀 Crabclaw commands:\n/new - Start a new conversation\n/stop - Stop current task\n/help - Show available commands")
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
@@ -490,7 +495,8 @@ class AgentLoop:
         )
 
         if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+            from crabclaw.i18n.translator import translate
+            final_content = translate("agent.empty_response")
 
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
@@ -508,7 +514,14 @@ class AgentLoop:
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save a turn to session history."""
         for msg in messages[skip:]:
-            session.add_message(msg)
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role", ""))
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            extras = {k: v for k, v in msg.items() if k not in {"role", "content"}}
+            session.add_message(role, content, **extras)
 
     async def process_direct(
         self,
@@ -525,7 +538,7 @@ class AgentLoop:
             channel=channel,
             sender_id=chat_id,
             chat_id=chat_id,
-            session_key=session_key,
+            session_key_override=session_key,
         )
         return await self._process_message(
             msg, session_key=session_key, on_progress=on_progress, prompt_manager_override=prompt_manager_override

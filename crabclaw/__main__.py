@@ -1,5 +1,5 @@
 """
-Entry point for running nanobot as a module: python -m nanobot
+Entry point for running Crabclaw as a module: python -m crabclaw
 """
 
 from crabclaw.cli.commands import app

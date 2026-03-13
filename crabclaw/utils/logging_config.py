@@ -1,4 +1,4 @@
-"""Logging configuration for nanobot with enhanced security."""
+"""Logging configuration for Crabclaw with enhanced security."""
 
 import sys
 from pathlib import Path

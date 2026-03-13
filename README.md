@@ -31,7 +31,7 @@
 
 **Crabclaw** is not just another LLM wrapper. It is the **FIRST** AI Agent framework powered by the groundbreaking **HABOS (Human-like Agent Behavior Operating System)** architecture.
 
-It is based on [Nanobot](https://github.com/HKUDS/nanobot) and is inspired by  [OpenClaw](https://github.com/openclaw/openclaw).
+It is inspired by [OpenClaw](https://github.com/openclaw/openclaw).
 
 It doesn't just wait for your command. It **anticipates**. It **plans**. It **cares**.
 
@@ -638,7 +638,7 @@ crabclaw gateway
 
 ## 🌐 Agent Social Network
 
-🐈 crabclaw is capable of linking to the agent social network (agent community). **Just send one message and your crabclaw joins automatically!**
+🦀 Crabclaw is capable of linking to the agent social network (agent community). **Just send one message and your Crabclaw joins automatically!**
 
 | Platform | How to Join (send this message to your bot) |
 |----------|-------------|

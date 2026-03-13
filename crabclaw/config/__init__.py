@@ -1,4 +1,4 @@
-"""Configuration module for nanobot."""
+"""Configuration module for Crabclaw."""
 
 from crabclaw.config.loader import get_config_path, load_config
 from crabclaw.config.schema import Config

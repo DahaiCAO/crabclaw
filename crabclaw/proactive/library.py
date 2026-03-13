@@ -8,9 +8,9 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, List
 
 from crabclaw.bus.queue import MessageBus, OutboundMessage
-from crabclaw.providers.base import LLMProvider
 from crabclaw.proactive.state import InternalState
 from crabclaw.proactive.triggers import TriggerEvent
+from crabclaw.providers.base import LLMProvider
 
 if TYPE_CHECKING:
     from crabclaw.agent.tools.registry import ToolRegistry

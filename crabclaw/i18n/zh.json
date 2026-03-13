@@ -1,7 +1,7 @@
 {
   "cli": {
-    "app_help": "{logo} crabclaw - 个人 AI 助手",
-    "version": "{logo} crabclaw v{version}",
+    "app_help": "{logo} - 个人 AI 助手",
+    "version": "{logo} v{version}",
     "main_help": "crabclaw - 个人 AI 助手",
     "onboard_help": "初始化 crabclaw 配置和工作目录",
     "config_help": "交互式配置向导 - 配置 crabclaw",
@@ -12,7 +12,7 @@
     "channels_help": "管理频道",
     "provider_help": "管理提供商",
     "onboard": {
-      "title": "🐈 crabclaw 设置向导",
+      "title": "{logo} 设置向导",
       "welcome": "这个向导将帮助您一步步设置 crabclaw",
       "exit_hint": "[dim]按 Ctrl+C 可随时退出，已保存的配置不会丢失[/dim]",
       "config_exists": "配置文件已存在于 {path}",
@@ -24,7 +24,7 @@
       "config_refreshed": "[green]✓[/green] 配置已刷新，保存于 {path}（现有值已保留）",
       "config_created": "[green]✓[/green] 配置已创建于 {path}",
       "workspace_created": "[green]✓[/green] 工作目录已创建于 {path}",
-      "ready": "{logo} crabclaw 已准备就绪！",
+      "ready": "{logo} 已准备就绪！",
       "next_steps": "下一步：",
       "chat_command": "  1. 开始聊天：[cyan]crabclaw agent -m \"你好！\"[/cyan]",
       "gateway_command": "  2. 启动网关：[cyan]crabclaw gateway[/cyan]",
@@ -57,7 +57,7 @@
       "cancelled": "[yellow]配置已取消。未保存任何更改。[/yellow]"
     },
     "config": {
-      "title": "🐈 crabclaw 配置向导",
+      "title": "{logo} 配置向导",
       "welcome": "这个向导将帮助您一步步配置 crabclaw",
       "exit_hint": "[dim]按 Ctrl+C 可随时退出，已保存的配置不会丢失[/dim]",
       "found_config": "[yellow]发现已有配置文件: {path}[/yellow]",
@@ -146,7 +146,7 @@
       "shutting_down": "正在关闭..."
     },
     "status": {
-      "title": "{logo} crabclaw 状态\n",
+      "title": "{logo} 状态\n",
       "config": "配置: {path} {status}",
       "workspace": "工作目录: {path} {status}",
       "model": "模型: {model}",
@@ -162,9 +162,13 @@
     },
     "agent": {
       "interactive_mode": "{logo} 交互模式 (输入 [bold]exit[/bold] 或 [bold]Ctrl+C[/bold] 退出)\n",
-      "thinking": "[dim]crabclaw 正在思考...[/dim]",
+      "thinking": "[dim]正在思考...[/dim]",
+      "empty_response": "[dim](无回复)[/dim]",
       "goodbye": "再见！"
     }
+  },
+  "agent": {
+    "empty_response": "暂无回复。"
   },
   "providers": {
     "openrouter": {

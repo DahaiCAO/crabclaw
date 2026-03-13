@@ -1,7 +1,7 @@
 {
   "cli": {
-    "app_help": "{logo} crabclaw - Personal AI Assistant",
-    "version": "{logo} crabclaw v{version}",
+    "app_help": "{logo} - Personal AI Assistant",
+    "version": "{logo} v{version}",
     "main_help": "crabclaw - Personal AI Assistant",
     "onboard_help": "Initialize crabclaw configuration and workspace",
     "config_help": "Interactive configuration wizard - Configure crabclaw",
@@ -12,7 +12,7 @@
     "channels_help": "Manage channels",
     "provider_help": "Manage providers",
     "onboard": {
-      "title": "🐈 crabclaw Setup Wizard",
+      "title": "{logo} Setup Wizard",
       "welcome": "This wizard will help you set up crabclaw step by step",
       "exit_hint": "[dim]Press Ctrl+C to exit at any time, saved configuration won't be lost[/dim]",
       "config_exists": "Config already exists at {path}",
@@ -24,7 +24,7 @@
       "config_refreshed": "[green]✓[/green] Config refreshed at {path} (existing values preserved)",
       "config_created": "[green]✓[/green] Created config at {path}",
       "workspace_created": "[green]✓[/green] Created workspace at {path}",
-      "ready": "{logo} crabclaw is ready!",
+      "ready": "{logo} is ready!",
       "next_steps": "Next steps:",
       "chat_command": "  1. Start chat: [cyan]crabclaw agent -m \"Hello!\"[/cyan]",
       "gateway_command": "  2. Start gateway: [cyan]crabclaw gateway[/cyan]",
@@ -57,7 +57,7 @@
       "cancelled": "[yellow]Configuration cancelled. No changes were saved.[/yellow]"
     },
     "config": {
-      "title": "🐈 crabclaw Configuration Wizard",
+      "title": "{logo} Configuration Wizard",
       "welcome": "This wizard will help you configure crabclaw step by step",
       "exit_hint": "[dim]Press Ctrl+C to exit at any time, saved configuration won't be lost[/dim]",
       "found_config": "[yellow]Found existing configuration file: {path}[/yellow]",
@@ -146,7 +146,7 @@
       "shutting_down": "Shutting down..."
     },
     "status": {
-      "title": "{logo} crabclaw Status\n",
+      "title": "{logo} Status\n",
       "config": "Config: {path} {status}",
       "workspace": "Workspace: {path} {status}",
       "model": "Model: {model}",
@@ -162,9 +162,13 @@
     },
     "agent": {
       "interactive_mode": "{logo} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n",
-      "thinking": "[dim]crabclaw is thinking...[/dim]",
+      "thinking": "[dim]Thinking...[/dim]",
+      "empty_response": "[dim](No response)[/dim]",
       "goodbye": "Goodbye!"
     }
+  },
+  "agent": {
+    "empty_response": "No response."
   },
   "providers": {
     "openrouter": {

@@ -1,4 +1,4 @@
-"""HTTP connection pool for nanobot."""
+"""HTTP connection pool for Crabclaw."""
 
 import asyncio
 from contextlib import asynccontextmanager

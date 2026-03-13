@@ -1,4 +1,4 @@
-"""Microservices infrastructure for nanobot."""
+"""Microservices infrastructure for Crabclaw."""
 
 import asyncio
 import signal
@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Callable
 
 from loguru import logger
 

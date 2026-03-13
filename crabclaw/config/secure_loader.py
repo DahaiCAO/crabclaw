@@ -7,17 +7,18 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import base64
+
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    import base64
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
 
-from crabclaw.config.schema import Config
 from loguru import logger
 
+from crabclaw.config.schema import Config
 
 # Sensitive fields that should be encrypted
 SENSITIVE_FIELDS = {
@@ -32,7 +33,7 @@ def _get_encryption_key() -> bytes | None:
     env_key = os.environ.get('CRABCLAW_CONFIG_KEY')
     if env_key:
         return base64.urlsafe_b64decode(env_key.encode())
-    
+
     # Try to load from key file
     key_file = Path.home() / '.crabclaw' / '.config_key'
     if key_file.exists():
@@ -41,7 +42,7 @@ def _get_encryption_key() -> bytes | None:
                 return f.read()
         except Exception:
             pass
-    
+
     # Generate new key if cryptography is available
     if CRYPTO_AVAILABLE:
         key = Fernet.generate_key()
@@ -55,7 +56,7 @@ def _get_encryption_key() -> bytes | None:
             return key
         except Exception as e:
             logger.warning(f"Failed to save encryption key: {e}")
-    
+
     return None
 
 
@@ -63,10 +64,10 @@ def _encrypt_sensitive_data(data: dict, key: bytes) -> dict:
     """Encrypt sensitive fields in configuration data."""
     if not CRYPTO_AVAILABLE or not key:
         return data
-    
+
     f = Fernet(key)
     encrypted_data = {}
-    
+
     for k, v in data.items():
         if isinstance(v, dict):
             encrypted_data[k] = _encrypt_sensitive_data(v, key)
@@ -87,7 +88,7 @@ def _encrypt_sensitive_data(data: dict, key: bytes) -> dict:
                 encrypted_data[k] = v
         else:
             encrypted_data[k] = v
-    
+
     return encrypted_data
 
 
@@ -95,10 +96,10 @@ def _decrypt_sensitive_data(data: dict, key: bytes) -> dict:
     """Decrypt sensitive fields in configuration data."""
     if not CRYPTO_AVAILABLE or not key:
         return data
-    
+
     f = Fernet(key)
     decrypted_data = {}
-    
+
     for k, v in data.items():
         if isinstance(v, dict):
             decrypted_data[k] = _decrypt_sensitive_data(v, key)
@@ -117,7 +118,7 @@ def _decrypt_sensitive_data(data: dict, key: bytes) -> dict:
                 decrypted_data[k] = v
         else:
             decrypted_data[k] = v
-    
+
     return decrypted_data
 
 
@@ -129,11 +130,11 @@ def _set_secure_permissions(path: Path) -> None:
         elif os.name == 'nt':  # Windows
             import ctypes
             from ctypes import wintypes
-            
+
             # Windows security settings
             SECURITY_DESCRIPTOR_REVISION = 1
             DACL_SECURITY_INFORMATION = 0x00000004
-            
+
             # Get current user SID
             user_sid = ctypes.windll.advapi32.GetTokenInformation(
                 ctypes.windll.kernel32.GetCurrentProcess(),
@@ -168,23 +169,23 @@ def load_config(config_path: Path | None = None) -> Config:
         Loaded configuration object.
     """
     path = config_path or get_config_path()
-    
+
     if path.exists():
         try:
             with open(path, encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             # Decrypt sensitive fields
             key = _get_encryption_key()
             if key and CRYPTO_AVAILABLE:
                 data = _decrypt_sensitive_data(data, key)
-            
+
             data = _migrate_config(data)
             return Config.model_validate(data)
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to load config from {path}: {e}")
             logger.warning("Using default configuration.")
-    
+
     return Config()
 
 
@@ -198,9 +199,9 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     """
     path = config_path or get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     data = config.model_dump(by_alias=True)
-    
+
     # Encrypt sensitive fields
     key = _get_encryption_key()
     if key and CRYPTO_AVAILABLE:
@@ -208,19 +209,19 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     elif not CRYPTO_AVAILABLE:
         logger.warning("cryptography library not available. Config will be saved unencrypted.")
         logger.warning("Install with: pip install cryptography")
-    
+
     # Write to temporary file first, then move (atomic operation)
     temp_path = path.with_suffix('.tmp')
     try:
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        
+
         # Set secure permissions before moving
         _set_secure_permissions(temp_path)
-        
+
         # Atomic move
         temp_path.replace(path)
-        
+
         logger.info(f"Configuration saved securely to {path}")
     except Exception as e:
         logger.error(f"Failed to save config: {e}")
@@ -247,7 +248,7 @@ def validate_config_security(config: Config) -> list[str]:
         List of security warnings.
     """
     warnings = []
-    
+
     # Check for empty allowFrom lists
     channels_config = config.channels
     for channel_name in ['telegram', 'whatsapp', 'discord', 'feishu', 'dingtalk', 'slack', 'qq', 'matrix']:
@@ -264,7 +265,7 @@ def validate_config_security(config: Config) -> list[str]:
                     f"Security Warning: {channel_name} channel allows access from everyone (allowFrom: ['*']). "
                     f"Consider restricting to specific user IDs for better security."
                 )
-    
+
     # Check for plaintext sensitive data
     providers = config.providers
     for provider_name in dir(providers):
@@ -279,7 +280,7 @@ def validate_config_security(config: Config) -> list[str]:
                             f"Security Warning: {provider_name} provider API key may be stored in plaintext. "
                             f"Consider using environment variables or enabling config encryption."
                         )
-    
+
     # Check for insecure tools configuration
     tools_config = config.tools
     if not tools_config.restrict_to_workspace:
@@ -287,7 +288,7 @@ def validate_config_security(config: Config) -> list[str]:
             "Security Warning: tools.restrictToWorkspace is disabled. "
             "File operations can access files outside the workspace directory."
         )
-    
+
     return warnings
 
 
@@ -299,7 +300,7 @@ def sanitize_config_for_display(config: Config) -> dict:
         Sanitized configuration dictionary.
     """
     data = config.model_dump(by_alias=True)
-    
+
     def _sanitize_recursive(obj: Any) -> Any:
         if isinstance(obj, dict):
             result = {}
@@ -320,5 +321,5 @@ def sanitize_config_for_display(config: Config) -> dict:
             return [_sanitize_recursive(item) for item in obj]
         else:
             return obj
-    
+
     return _sanitize_recursive(data)

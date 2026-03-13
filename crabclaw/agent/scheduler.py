@@ -30,6 +30,8 @@ from crabclaw.dashboard.broadcaster import DashboardBroadcaster
 from crabclaw.dashboard.server import DashboardServer
 from crabclaw.dashboard.server import DashboardConfig as _DashboardConfig
 from crabclaw.dashboard.tailer import JsonlTailer
+from crabclaw.gateway.server import GatewayServer, GatewayServerConfig
+from crabclaw.i18n.translator import detect_system_language, set_language
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,8 @@ class BehaviorScheduler:
 
     def __init__(self, config: Config):
         self.config = config
+        lang = getattr(config, "language", None) or detect_system_language()
+        set_language(lang)
         self.workspace = config.workspace_path
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.state_file = self.workspace / "internal_state.json"
@@ -62,6 +66,7 @@ class BehaviorScheduler:
         # 3. 初始化外围服务
         self.cron_service = self._init_cron_service()
         self.channel_manager = ChannelManager(self.config, self.bus)
+        self.gateway_server = self._init_gateway_server()
         self.dashboard_server = self._init_dashboard_server()
 
         # 4. 初始化三大引擎
@@ -76,6 +81,14 @@ class BehaviorScheduler:
         self._setup_callbacks()
 
         self._tasks = []
+
+    def _init_gateway_server(self) -> GatewayServer:
+        cfg = GatewayServerConfig(
+            enabled=True,
+            host=self.config.gateway.host,
+            port=self.config.gateway.port,
+        )
+        return GatewayServer(cfg)
 
     def _init_dashboard_server(self) -> DashboardServer:
         static_dir = Path(__file__).parent.parent / "dashboard" / "static"
@@ -309,6 +322,7 @@ class BehaviorScheduler:
         logger.info("Behavior Scheduler starting all services and engines...")
 
         # 启动外围服务
+        await self.gateway_server.start()
         await self.dashboard_server.start()
         await self._start_dashboard_streams()
         await self.cron_service.start()
@@ -380,6 +394,7 @@ class BehaviorScheduler:
         await self.reactive_engine.close_mcp()
         await self._stop_dashboard_streams()
         await self.dashboard_server.stop()
+        await self.gateway_server.stop()
 
         for task in self._tasks:
             if not task.done():

@@ -1,4 +1,4 @@
-"""MCP client: connects to MCP servers and wraps their tools as native nanobot tools with enhanced security."""
+"""MCP client: connects to MCP servers and wraps their tools as native Crabclaw tools with enhanced security."""
 
 import asyncio
 from contextlib import AsyncExitStack
@@ -19,7 +19,7 @@ from crabclaw.utils.audit_logger import audit_log, AuditEventType
 
 
 class MCPToolWrapper(Tool):
-    """Wraps a single MCP server tool as a nanobot Tool with security controls."""
+    """Wraps a single MCP server tool as a Crabclaw Tool with security controls."""
 
     def __init__(
         self,

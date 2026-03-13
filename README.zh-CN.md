@@ -1,4 +1,4 @@
-# 🦀 Crabclaw — 一个能思考的 AI 助手
+# 🦀 虾兵蟹将 Crabclaw — 你的能思考的 AI 全能助手
  
 <p align="center">
   <picture>
@@ -29,7 +29,7 @@
 
 > 🧭 **一句话：Crabclaw 不是“LLM 包装器”，它是带“内驱力”的 Agent 操作系统。**
 
-它基于 [Nanobot](https://github.com/HKUDS/nanobot) 和 受到[OpenClaw](https://github.com/openclaw/openclaw) 启发。
+它受到 [OpenClaw](https://github.com/openclaw/openclaw) 启发。
 
 **crabclaw** 是一个超轻量、可扩展的个人 AI 助手框架。它以 **HABOS（Human-like Agent Behavior Operating System）** 为核心设计哲学：通过 **双引擎（被动 Reactive + 主动 Proactive）** 与 **内部状态（Internal State）**，让 Agent 从“被动工具”升级为“有目标、有边界、会反思”的伙伴。
 

@@ -1,56 +1,65 @@
-"""Utility functions for nanobot."""
+"""Utility functions for Crabclaw."""
 
-from crabclaw.utils.helpers import ensure_dir, get_data_path, get_workspace_path
+from crabclaw.utils.cache import Cache, cache_manager, cached
+from crabclaw.utils.container import Container, Lifetime, container
 from crabclaw.utils.errors import (
-    NanobotError,
-    Result,
+    ConfigurationError,
+    CrabclawError,
     ErrorCode,
+    ExternalServiceError,
     InvalidInputError,
+    NetworkError,
     NotFoundError,
     PermissionDeniedError,
-    TimeoutError,
-    NetworkError,
-    ExternalServiceError,
-    ConfigurationError,
-    ToolExecutionError,
-    SecurityViolationError,
     RateLimitExceededError,
+    Result,
+    SecurityViolationError,
+    TimeoutError,
+    ToolExecutionError,
 )
-from crabclaw.utils.logging_config import setup_logging, logger, LogContext
-from crabclaw.utils.metrics import metrics, Counter, Gauge, Histogram, Timer, count, timed, timed_async
-from crabclaw.utils.cache import cache_manager, Cache, cached
-from crabclaw.utils.plugin_system import plugin_registry, Plugin, PluginType, PluginMetadata
-from crabclaw.utils.container import container, Container, Lifetime
-from crabclaw.utils.http_pool import http_pool, HTTPClientPool, RateLimiter, RetryPolicy
-from crabclaw.utils.testing import MockMessage, MockChannel, AsyncMock, FixtureBuilder
-from crabclaw.utils.multimodal import (
-    MediaType,
-    MediaContent,
-    MultimodalContentBuilder,
-    VisionClient,
-    TranscriptionClient,
-    multimodal_builder,
+from crabclaw.utils.helpers import ensure_dir, get_data_path, get_workspace_path
+from crabclaw.utils.http_pool import HTTPClientPool, RateLimiter, RetryPolicy, http_pool
+from crabclaw.utils.logging_config import LogContext, logger, setup_logging
+from crabclaw.utils.metrics import (
+    Counter,
+    Gauge,
+    Histogram,
+    Timer,
+    count,
+    metrics,
+    timed,
+    timed_async,
 )
 from crabclaw.utils.microservices import (
-    ServiceStatus,
-    ServiceHealth,
-    Service,
-    ServiceRegistry,
+    GracefulShutdown,
     HealthChecker,
     LifecycleManager,
-    GracefulShutdown,
+    Service,
+    ServiceHealth,
+    ServiceRegistry,
+    ServiceStatus,
     SignalHandler,
-    service_registry,
-    lifecycle_manager,
     graceful_shutdown,
+    lifecycle_manager,
     service_context,
+    service_registry,
 )
+from crabclaw.utils.multimodal import (
+    MediaContent,
+    MediaType,
+    MultimodalContentBuilder,
+    TranscriptionClient,
+    VisionClient,
+    multimodal_builder,
+)
+from crabclaw.utils.plugin_system import Plugin, PluginMetadata, PluginType, plugin_registry
+from crabclaw.utils.testing import AsyncMock, FixtureBuilder, MockChannel, MockMessage
 
 __all__ = [
     "ensure_dir",
     "get_workspace_path",
     "get_data_path",
-    "NanobotError",
+    "CrabclawError",
     "Result",
     "ErrorCode",
     "InvalidInputError",

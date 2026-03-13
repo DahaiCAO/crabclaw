@@ -1,4 +1,4 @@
-"""Utility functions for nanobot."""
+"""Utility functions for Crabclaw."""
 
 import re
 from datetime import datetime

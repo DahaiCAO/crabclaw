@@ -1,4 +1,4 @@
-"""Caching layer for nanobot."""
+"""Caching layer for Crabclaw."""
 
 import asyncio
 import functools

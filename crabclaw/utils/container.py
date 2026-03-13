@@ -1,4 +1,4 @@
-"""Dependency injection container for nanobot."""
+"""Dependency injection container for Crabclaw."""
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
