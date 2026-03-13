@@ -95,7 +95,62 @@ document.addEventListener('click', (e) => {
 });
 
 // Initialize theme on load
-initTheme();
+  initTheme();
+
+  // File operations
+  function renderFiles(files) {
+    const fileList = document.getElementById('core-files-list');
+    fileList.innerHTML = '';
+
+    files.forEach(file => {
+      const fileItem = document.createElement('div');
+      fileItem.className = 'core-file-item';
+      fileItem.textContent = file.name;
+      fileItem.dataset.fileName = file.name;
+
+      fileItem.addEventListener('click', () => {
+        // Remove active class from all items
+        document.querySelectorAll('.core-file-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        // Add active class to clicked item
+        fileItem.classList.add('active');
+        // Load file content
+        loadFileContent(file.name);
+      });
+
+      fileList.appendChild(fileItem);
+    });
+  }
+
+  function loadFileContent(fileName) {
+    ws.send(JSON.stringify({
+      type: 'get_file_content',
+      data: { file_name: fileName }
+    }));
+  }
+
+  function saveFile() {
+    const fileName = document.getElementById('current-file-name').textContent;
+    const content = document.getElementById('file-content').value;
+
+    if (fileName !== 'Select a file') {
+      ws.send(JSON.stringify({
+        type: 'save_file',
+        data: { file_name: fileName, content: content }
+      }));
+    }
+  }
+
+  // Load files when Core Files section is selected
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.menu-item[data-section="core-files"]')) {
+      ws.send(JSON.stringify({ type: 'get_files' }));
+    }
+  });
+
+  // Save button click event
+  document.getElementById('save-file-btn').addEventListener('click', saveFile);
 
 // Menu navigation
 const menuItems = document.querySelectorAll('.menu-item');
@@ -322,6 +377,22 @@ function connect(){
 
     if (type === "chat_response"){
       addChatMessage(data.response, false);
+      return;
+    }
+
+    if (type === "files"){
+      renderFiles(data.files);
+      return;
+    }
+
+    if (type === "file_content"){
+      document.getElementById("file-content").value = data.content;
+      document.getElementById("current-file-name").textContent = data.file_name;
+      return;
+    }
+
+    if (type === "file_saved"){
+      alert(data.success ? "File saved successfully!" : "Failed to save file.");
       return;
     }
 

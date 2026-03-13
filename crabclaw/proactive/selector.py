@@ -1,9 +1,9 @@
 """
-HABOS 架构 - 决策层 (Decision Layer) 的核心
+HABOS Architecture - Core of the Decision Layer
 
-此模块定义了行为决策器 (ActionSelector)，它负责在所有可行的主动行为中，
-根据价值评估模型，选择出最优的一个来执行。
-它回答了"我该做什么？"这个问题。
+This module defines the ActionSelector, which is responsible for selecting the optimal one to execute
+from all feasible proactive actions based on a value evaluation model.
+It answers the question "What should I do?".
 """
 import json
 from typing import Dict, List, Optional
@@ -17,8 +17,8 @@ from crabclaw.providers.base import LLMProvider
 
 class ActionSelector:
     """
-    行为决策器。
-    根据触发事件和内部状态，利用 LLM 进行风险收益分析，决定采取哪个主动行为。
+    Action Selector.
+    Based on trigger events and internal state, use LLM to perform risk-benefit analysis and decide which proactive action to take.
     """
 
     def __init__(
@@ -29,13 +29,13 @@ class ActionSelector:
         self.provider = provider
         self.prompt_manager = prompt_manager
         self.decision_threshold = decision_threshold
-        # 这是您设计的行为价值评估模型
+        # This is your designed action value evaluation model
         self.weights = {
             "goal_gain": 0.3,
             "risk_reduction": 0.3,
             "relationship_maintenance": 0.1,
             "long_term_benefit": 0.1,
-            "interruption_cost": -0.2, # 负权重
+            "interruption_cost": -0.2, # Negative weight
         }
 
     async def _score_action_with_llm(
@@ -54,21 +54,21 @@ class ActionSelector:
             action_description=action.description
         )
 
-        # 在真实的实现中，需要使用能强制输出 JSON 的方法来增强稳定性
+        # In a real implementation, need to use methods that can force JSON output to enhance stability
         response = await self.provider.chat(
             messages=[{"role": "user", "content": prompt}],
-            # response_format={"type": "json_object"} # 理想情况
+            # response_format={"type": "json_object"} # Ideal case
         )
 
         try:
-            # 尝试解析 LLM 返回的可能包含在代码块中的 JSON
+            # Try to parse JSON that LLM returns, which may be contained in code blocks
             content = response.content
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             scores = json.loads(content)
         except (json.JSONDecodeError, IndexError):
             # logger.error(f"Failed to parse LLM scoring response: {e}")
-            scores = {} # 出错时返回空字典，避免崩溃
+            scores = {} # Return empty dictionary on error to avoid crash
 
         return scores
 
@@ -92,7 +92,7 @@ class ActionSelector:
             return None
 
         for event, action in candidate_actions:
-            # 检查打扰预算
+            # Check interruption budget
             if state.interruption_budget < action.cost:
                 # logger.warning(f"Skipping action '{action.name}' due to insufficient interruption budget.")
                 continue

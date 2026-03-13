@@ -57,7 +57,7 @@ class SkillManager:
                 skill_instance = obj()
                 logger.info(f"Discovered skill: {skill_instance.name}")
                 
-                # 实例化并注册该技能提供的所有工具
+                # Instantiate and register all tools provided by this skill
                 for tool_class in skill_instance.get_tools():
                     tool_instance = tool_class()
                     self.tool_registry.register(tool_instance)

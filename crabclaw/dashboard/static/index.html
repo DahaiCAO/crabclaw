@@ -37,6 +37,10 @@
             <span class="menu-icon">📋</span>
             <span class="menu-text">Audit Log</span>
           </div>
+          <div class="menu-item" data-section="core-files">
+            <span class="menu-icon">📁</span>
+            <span class="menu-text">Core Files</span>
+          </div>
           <div class="menu-item" data-section="reflection">
             <span class="menu-icon">🧠</span>
             <span class="menu-text">Reflection</span>
@@ -102,6 +106,33 @@
               </div>
             </div>
             <div class="log" id="audit-log"></div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-core-files">
+          <div class="card">
+            <div class="card-title">Core Files（核心文件）</div>
+            <div class="core-files-container">
+              <div class="core-files-sidebar">
+                <div class="core-files-header">
+                  <h3>Prompts</h3>
+                </div>
+                <div class="core-files-list" id="core-files-list">
+                  <!-- File list will be populated by JavaScript -->
+                </div>
+              </div>
+              <div class="core-files-editor">
+                <div class="core-files-editor-header">
+                  <h3 id="current-file-name">Select a file</h3>
+                  <div class="core-files-editor-actions">
+                    <button id="save-file-btn" class="btn">Save</button>
+                  </div>
+                </div>
+                <div class="core-files-editor-content">
+                  <textarea id="file-content" placeholder="File content will be displayed here..."></textarea>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

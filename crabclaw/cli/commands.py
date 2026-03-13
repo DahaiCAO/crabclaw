@@ -805,7 +805,7 @@ def onboard_config():
     console.print(translate("cli.config.welcome"))
     _print_info(translate("cli.config.exit_hint"))
 
-    # Step 2: 选择 LLM Provider
+    # Step 2: Select LLM Provider
     _print_step(2, total_steps, translate("cli.config.step_1_title"))
     console.print("\n" + translate("cli.config.select_provider"))
 
@@ -823,13 +823,13 @@ def onboard_config():
     provider_name = translate(f"providers.{provider_key}.name")
     _print_success(translate("cli.config.selected_provider", provider=provider_name))
 
-    # Step 3: 选择模型
+    # Step 3: Select model
     _print_step(3, total_steps, translate("cli.config.step_2_title", provider=provider_name))
     console.print("\n" + translate("cli.config.available_models", provider=provider_name) + "\n")
 
     models = provider_info['models']
 
-    # 如果是 custom，让用户选择或输入自定义模型名
+    # If custom, let the user select or enter a custom model name
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_model_hint"))
         console.print(translate("cli.config.custom_model_default"))
@@ -838,7 +838,7 @@ def onboard_config():
     else:
         selected_model = _ask_choice(translate("cli.config.select_model"), models, 0)
 
-    # 如果是 custom，可能需要配置 base_url
+    # If custom, may need to configure base_url
     base_url = provider_info['default_base_url']
     if provider_key == "custom":
         console.print("\n" + translate("cli.config.custom_api_hint"))
@@ -848,7 +848,7 @@ def onboard_config():
 
     _print_success(translate("cli.config.selected_model", model=selected_model))
 
-    # Step 4: 配置 API Key
+    # Step 4: Configure API Key
     _print_step(4, total_steps, translate("cli.config.step_3_title"))
 
     if provider_info['api_key_url']:
@@ -858,7 +858,7 @@ def onboard_config():
     api_key = _ask_password(translate("cli.config.enter_api_key"))
     _print_success(translate("cli.config.api_key_saved"))
 
-    # Step 5: 配置工具（可选）
+    # Step 5: Configure tools (optional)
     _print_step(5, total_steps, translate("cli.config.step_4_title"))
 
     enable_exec = typer.confirm("\n" + translate("cli.config.enable_exec"), default=False)
@@ -867,13 +867,13 @@ def onboard_config():
         restrict_workspace = typer.confirm(translate("cli.config.restrict_workspace"), default=True)
 
         if provider_key == "openrouter":
-            # 配置代理（可选）
+            # Configure proxy (optional)
             proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
             if proxy:
                 config.tools.web.proxy = proxy
 
-    # 保存配置
-    # 使用 getattr 获取 provider 配置并设[OK]?apiKey
+    # Save configuration
+    # Use getattr to get provider config and set API key
     provider_config = getattr(config.providers, provider_key, None)
     if provider_config is None:
         from crabclaw.config.schema import ProviderConfig
@@ -885,7 +885,7 @@ def onboard_config():
     if base_url != provider_info['default_base_url']:
         provider_config.api_base = base_url
 
-    # 设置默认模型
+    # Set default model
     if not config.agents:
         from crabclaw.config.schema import AgentsConfig
         config.agents = AgentsConfig()
@@ -906,7 +906,7 @@ def onboard_config():
     save_config(config)
     _print_success(translate("cli.config.config_saved", path=config_path))
 
-    # 创建工作目录
+    # Create workspace directory
     workspace = get_workspace_path()
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
@@ -977,7 +977,7 @@ def gateway(
     config.gateway.port = port
     sync_workspace_templates(config.workspace_path)
 
-    # 初始化总调度器，它将负责管理所有引擎
+    # Initialize the main scheduler, which will be responsible for managing all engines
     scheduler = BehaviorScheduler(config)
 
     async def run():

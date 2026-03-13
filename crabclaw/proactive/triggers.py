@@ -1,8 +1,8 @@
 """
-HABOS 架构 - 感知层 (Perception Layer) 的一部分
+HABOS Architecture - Part of the Perception Layer
 
-此模块定义了触发系统 (TriggerSystem)，它负责监测内部状态，
-识别需要启动主动行为的条件（如风险、机会、空闲时间等）。
+This module defines the TriggerSystem, which is responsible for monitoring internal state,
+identifying conditions that require initiating proactive behavior (such as risks, opportunities, idle time, etc.).
 """
 import time
 from abc import ABC, abstractmethod
@@ -13,8 +13,8 @@ from crabclaw.proactive.state import InternalState
 
 class TriggerEvent:
     """
-    当一个触发条件被满足时，生成的结构化事件对象。
-    这是从“感知层”传递给“决策层”的信息。
+    Structured event object generated when a trigger condition is met.
+    This is the information passed from the "Perception Layer" to the "Decision Layer".
     """
 
     def __init__(
@@ -29,55 +29,55 @@ class TriggerEvent:
 
 
 class BaseTrigger(ABC):
-    """所有具体触发器的抽象基类 (策略模式)。"""
+    """Abstract base class for all concrete triggers (strategy pattern)."""
 
     @abstractmethod
     def check(self, state: InternalState) -> Optional[TriggerEvent]:
         """
-        检查是否满足触发条件。
-        如果满足，返回一个 TriggerEvent 对象；否则返回 None。
+        Check if the trigger condition is met.
+        If met, return a TriggerEvent object; otherwise return None.
         """
         pass
 
 
-# --- 具体触发器实现 ---
+# --- Concrete Trigger Implementations ---
 
 class RiskTrigger(BaseTrigger):
-    """风险触发器：检查内部状态中记录的各种风险。"""
+    """Risk trigger: Check various risks recorded in the internal state."""
 
     def check(self, state: InternalState) -> Optional[TriggerEvent]:
-        # 示例：检查用户是否长时间未响应
+        # Example: Check if user has been unresponsive for a long time
         if "user_unresponsive" in state.risks:
             risk_data = state.risks["user_unresponsive"]
             days = risk_data.get("days", 0)
-            if days >= 3:  # 阈值可以配置
+            if days >= 3:  # Threshold can be configured
                 return TriggerEvent(
                     trigger_type="risk_detected.user_unresponsive",
-                    description=f"用户已 {days} 天未在 '{risk_data.get('topic', '一个重要话题')}' 上响应。",
+                    description=f"User has not responded on '{risk_data.get('topic', 'an important topic')}' for {days} days.",
                     metadata=risk_data,
                 )
-        # 此处可以添加更多风险类型的检查，如“市场数据过期”等
+        # More risk types can be added here, such as "market data expired" etc.
         return None
 
 
 class GoalUnfinishedTrigger(BaseTrigger):
-    """目标未完成触发器：检查是否有正在进行中的任务。"""
+    """Goal unfinished trigger: Check if there are ongoing tasks."""
 
     def check(self, state: InternalState) -> Optional[TriggerEvent]:
         in_progress_tasks = [t for t in state.tasks if t.get("status") == "in_progress"]
         if in_progress_tasks:
             return TriggerEvent(
                 trigger_type="goal_unfinished",
-                description=f"有 {len(in_progress_tasks)} 个正在进行中的任务需要关注。",
+                description=f"There are {len(in_progress_tasks)} ongoing tasks that need attention.",
                 metadata={"tasks": in_progress_tasks},
             )
         return None
 
 
 class IdleTimeTrigger(BaseTrigger):
-    """空闲时间触发器：检查 Agent 是否长时间未进行主动交互。"""
+    """Idle time trigger: Check if Agent has not been proactively interacting for a long time."""
 
-    def __init__(self, idle_seconds: int = 3600 * 24):  # 默认为 24 小时
+    def __init__(self, idle_seconds: int = 3600 * 24):  # Default is 24 hours
         self.idle_seconds = idle_seconds
 
     def check(self, state: InternalState) -> Optional[TriggerEvent]:
@@ -85,17 +85,17 @@ class IdleTimeTrigger(BaseTrigger):
         if (current_time - state.last_proactive_ts) > self.idle_seconds:
             return TriggerEvent(
                 trigger_type="long_idle_time",
-                description=f"Agent 已超过 {self.idle_seconds / 3600:.1f} 小时未进行主动交互。",
+                description=f"Agent has not been proactively interacting for more than {self.idle_seconds / 3600:.1f} hours.",
                 metadata={"idle_seconds": self.idle_seconds},
             )
         return None
 
 
-# --- 触发系统管理器 ---
+# --- Trigger System Manager ---
 
 class TriggerSystem:
     """
-    管理和运行所有触发器的系统。
+    System that manages and runs all triggers.
     """
 
     def __init__(self):
@@ -103,17 +103,17 @@ class TriggerSystem:
         self._register_default_triggers()
 
     def _register_default_triggers(self):
-        """注册所有默认的触发器。未来可以从配置动态加载。"""
+        """Register all default triggers. Can be dynamically loaded from configuration in the future."""
         self.add_trigger(RiskTrigger())
         self.add_trigger(GoalUnfinishedTrigger())
-        self.add_trigger(IdleTimeTrigger(idle_seconds=3600 * 8)) # 缩短时间以便测试
+        self.add_trigger(IdleTimeTrigger(idle_seconds=3600 * 8)) # Shortened time for testing
 
     def add_trigger(self, trigger: BaseTrigger):
         self._triggers.append(trigger)
 
     def check(self, state: InternalState) -> List[TriggerEvent]:
         """
-        运行所有已注册的触发器，并收集所有被触发的事件。
+        Run all registered triggers and collect all triggered events.
         """
         triggered_events = []
         for trigger in self._triggers:

@@ -1,16 +1,16 @@
 """
-HABOS 架构 - 总调度器
+HABOS Architecture - Main Scheduler
 
-此模块定义了 BehaviorScheduler，它是整个系统的顶层控制器。
-它负责初始化并同时运行被动、主动、反思三大引擎，
-并管理共享资源和状态的持久化。
+This module defines the BehaviorScheduler, which is the top-level controller of the entire system.
+It is responsible for initializing and running the three major engines (reactive, proactive, reflection) simultaneously,
+and managing shared resources and state persistence.
 """
 import asyncio
 import logging
 import signal
 from pathlib import Path
 
-from crabclaw.agent.loop import AgentLoop  # 被动引擎
+from crabclaw.agent.loop import AgentLoop  # Reactive engine
 from crabclaw.bus.queue import MessageBus
 from crabclaw.channels.manager import ChannelManager
 from crabclaw.config.loader import get_data_dir
@@ -20,9 +20,9 @@ from crabclaw.cron.types import CronJob
 from crabclaw.heartbeat.service import HeartbeatService
 from crabclaw.providers.base import LLMProvider
 from crabclaw.prompts.manager import PromptManager
-from crabclaw.proactive.engine import ProactiveEngine  # 主动引擎
+from crabclaw.proactive.engine import ProactiveEngine  # Proactive engine
 from crabclaw.proactive.state import InternalState
-from crabclaw.reflection.engine import ReflectionEngine  # 反思引擎
+from crabclaw.reflection.engine import ReflectionEngine  # Reflection engine
 from crabclaw.reflection.logger import AuditLogger
 from crabclaw.session.manager import SessionManager
 from crabclaw.agent.tools.registry import ToolRegistry
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 class BehaviorScheduler:
     """
-    行为总调度器。
+    Behavior Scheduler.
     """
 
     def __init__(self, config: Config):
@@ -51,7 +51,7 @@ class BehaviorScheduler:
         self.audit_log_file = self.workspace / "audit.log.jsonl"
         self.prompts_dir = self.workspace / "prompts"
 
-        # 1. 初始化共享资源
+        # 1. Initialize shared resources
         self.state = self._load_internal_state()
         self.bus = MessageBus()
         self.provider = self._init_provider()
@@ -63,21 +63,21 @@ class BehaviorScheduler:
         self._audit_tailer: JsonlTailer | None = None
         self._state_ticker: asyncio.Task | None = None
 
-        # 3. 初始化外围服务
+        # 3. Initialize peripheral services
         self.cron_service = self._init_cron_service()
         self.channel_manager = ChannelManager(self.config, self.bus)
         self.gateway_server = self._init_gateway_server()
         self.dashboard_server = self._init_dashboard_server()
 
-        # 4. 初始化三大引擎
+        # 4. Initialize the three major engines
         self.reactive_engine = self._init_reactive_engine()
         self.proactive_engine = self._init_proactive_engine()
         self.reflection_engine = self._init_reflection_engine()
         
-        # 5. 初始化心跳服务（依赖被动引擎）
+        # 5. Initialize heartbeat service (depends on reactive engine)
         self.heartbeat_service = self._init_heartbeat_service()
 
-        # 6. 建立服务间的回调依赖
+        # 6. Establish callback dependencies between services
         self._setup_callbacks()
 
         self._tasks = []
@@ -239,12 +239,12 @@ class BehaviorScheduler:
         )
 
     def _setup_callbacks(self):
-        """设置服务之间的回调函数。"""
+        """Set up callback functions between services."""
         self.cron_service.on_job = self._on_cron_job
 
     async def _on_cron_job(self, job: CronJob) -> str | None:
-        """执行一个 cron job。"""
-        # 此逻辑直接从旧的 cli/commands.py 迁移而来
+        """Execute a cron job."""
+        # This logic is directly migrated from the old cli/commands.py
         from crabclaw.agent.tools.cron import CronTool
         from crabclaw.agent.tools.message import MessageTool
         reminder_note = (
@@ -268,11 +268,11 @@ class BehaviorScheduler:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
                 cron_tool.reset_cron_context(cron_token)
 
-        # ... (其他回调逻辑可以按需迁移)
+        # ... (Other callback logic can be migrated as needed)
         return response
 
     def _pick_heartbeat_target(self) -> tuple[str, str]:
-        """为心跳消息选择一个可路由的目标。"""
+        """Select a routable target for heartbeat messages."""
         enabled = set(self.channel_manager.enabled_channels)
         for item in self.session_manager.list_sessions():
             key = item.get("key") or ""
@@ -284,14 +284,14 @@ class BehaviorScheduler:
         return "cli", "direct"
 
     async def _on_heartbeat_execute(self, tasks: str) -> str:
-        """通过被动引擎执行心跳任务。"""
+        """Execute heartbeat tasks through the reactive engine."""
         channel, chat_id = self._pick_heartbeat_target()
         return await self.reactive_engine.process_direct(
             tasks, session_key="heartbeat", channel=channel, chat_id=chat_id
         )
 
     async def _on_heartbeat_notify(self, response: str) -> None:
-        """将心跳响应发送到用户频道。"""
+        """Send heartbeat response to user channel."""
         from crabclaw.bus.events import OutboundMessage
         channel, chat_id = self._pick_heartbeat_target()
         if channel != "cli":
@@ -317,24 +317,24 @@ class BehaviorScheduler:
 
     async def run(self):
         """
-        同时启动所有引擎和服务并管理它们的生命周期。
+        Start all engines and services simultaneously and manage their lifecycle.
         """
         logger.info("Behavior Scheduler starting all services and engines...")
 
-        # 启动外围服务
+        # Start peripheral services
         await self.gateway_server.start()
         await self.dashboard_server.start()
         await self._start_dashboard_streams()
         await self.cron_service.start()
         await self.heartbeat_service.start()
         
-        # 启动三大引擎的后台任务 (如果已在配置中启用)
+        # Start background tasks for the three major engines (if enabled in config)
         if self.config.proactive.enabled:
             self.proactive_engine.start(interval_seconds=self.config.proactive.interval)
         if self.config.reflection.enabled:
             self.reflection_engine.start(interval_seconds=self.config.reflection.interval)
         
-        # 启动核心的被动引擎和通道管理器
+        # Start the core reactive engine and channel manager
         reactive_task = asyncio.create_task(self.reactive_engine.run())
         channels_task = asyncio.create_task(self.channel_manager.start_all())
         self._tasks.extend([reactive_task, channels_task])
@@ -342,7 +342,7 @@ class BehaviorScheduler:
         logger.info("All services and engines are now running.")
         logger.info("Dashboard: {}", self.dashboard_server.http_url)
 
-        # 优雅地处理停止信号
+        # Gracefully handle stop signals
         loop = asyncio.get_running_loop()
         stop_signals = []
         for name in ("SIGHUP", "SIGINT", "SIGTERM"):
@@ -355,7 +355,7 @@ class BehaviorScheduler:
                 # Windows / embedded loops may not support signal handlers.
                 pass
 
-        # 等待核心任务完成，并定期保存状态
+        # Wait for core tasks to complete and periodically save state
         try:
             core_tasks = self._tasks
             while all(not task.done() for task in core_tasks):
@@ -382,7 +382,7 @@ class BehaviorScheduler:
     async def stop(self):
         logger.info("Behavior Scheduler stopping all services and engines...")
         
-        # 停止所有后台任务和引擎
+        # Stop all background tasks and engines
         self.proactive_engine.stop()
         self.reflection_engine.stop()
         self.heartbeat_service.stop()

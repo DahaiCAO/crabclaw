@@ -1,8 +1,9 @@
 """
-HABOS 架构 - 反思层 (Meta-Cognition Layer) 的核心引擎
+HABOS Architecture - Core Engine for the Meta-Cognition Layer
 
-此模块定义了 ReflectionEngine，它是一个在后台运行的独立服务，
-负责读取审计日志，进行自我评估和优化，实现 Agent 的自主进化。
+This module defines the ReflectionEngine, which is an independent service running in the background.
+It is responsible for reading audit logs, performing self-evaluation and optimization,
+and enabling the autonomous evolution of the Agent.
 """
 import asyncio
 import json
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ReflectionEngine:
     """
-    反思引擎。
+    Reflection Engine.
     """
 
     def __init__(
@@ -48,7 +49,7 @@ class ReflectionEngine:
             return
 
     def _read_new_logs(self) -> List[Dict[str, Any]]:
-        """读取自上次处理以来所有新的审计日志。"""
+        """Read all new audit logs since the last processing."""
         new_logs = []
         try:
             with open(self.audit_log_path, "r", encoding="utf-8") as f:
@@ -58,20 +59,20 @@ class ReflectionEngine:
                         if log_entry["timestamp"] > self._last_log_timestamp_processed:
                             new_logs.append(log_entry)
                     except (json.JSONDecodeError, KeyError):
-                        continue # 跳过格式不正确的行
+                        continue # Skip lines with incorrect format
         except FileNotFoundError:
             logger.warning(f"Audit log file not found at: {self.audit_log_path}")
             return []
 
         if new_logs:
-            # 更新处理时间戳到最新一条日志的时间
+            # Update processing timestamp to the latest log entry's timestamp
             self._last_log_timestamp_processed = new_logs[-1]["timestamp"]
 
         return new_logs
 
     async def run_goal_oracle(self, user_request: str, agent_response: str) -> Optional[dict]:
         """
-        运行“目标预言机”，判断一次交互是否与长期目标对齐。
+        Run the "Goal Oracle" to determine if an interaction aligns with long-term goals.
         """
         prompt = self.prompt_manager.format(
             "reflection_goal_oracle",
@@ -91,7 +92,7 @@ class ReflectionEngine:
 
     async def run_cycle(self):
         """
-        执行一个完整的反思“感知-分析-优化”循环。
+        Execute a complete reflection "perception-analysis-optimization" cycle.
         """
         logger.debug("Running reflection engine cycle...")
 
@@ -104,17 +105,17 @@ class ReflectionEngine:
 
         logger.info(f"Reflecting on {len(log_entries)} new audit log entries.")
 
-        # 更新状态中的反思时间戳
+        # Update reflection timestamp in state
         self.state.last_reflection_ts = self._last_log_timestamp_processed
         self.state.update_timestamp()
 
-        # 2. 从日志中提取完整的交互（请求/响应对）
-        #    这是一个简化的实现，它假设一个请求后紧跟着一个最终响应。
-        #    更复杂的实现需要处理多轮对话和并发。
+        # 2. Extract complete interactions (request/response pairs) from logs
+        #    This is a simplified implementation that assumes a request is immediately followed by a final response.
+        #    A more complex implementation would need to handle multi-turn conversations and concurrency.
         interactions = self._extract_interactions(log_entries)
 
         for interaction in interactions:
-            # 3. 对每个交互运行“目标预言机”
+            # 3. Run "Goal Oracle" for each interaction
             logger.debug("Running Goal Oracle for interaction...")
             oracle_result = await self.run_goal_oracle(
                 interaction["request"], interaction["response"]
@@ -132,7 +133,7 @@ class ReflectionEngine:
                     f"Score: {oracle_result['goal_alignment_score']}, "
                     f"Reason: {oracle_result['justification']}"
                 )
-                # 4. 触发“归因分析”
+                # 4. Trigger "Root Cause Analysis"
                 optimization_hypothesis = await self.run_root_cause_analysis(
                     interaction["full_log_chain"],
                     oracle_result
@@ -144,7 +145,7 @@ class ReflectionEngine:
                         "stage": "hypothesis",
                         "hypothesis": optimization_hypothesis,
                     })
-                    # 5. 触发“内部模拟验证”和“自我优化”
+                    # 5. Trigger "Internal Simulation Verification" and "Self-Optimization"
                     await self.verify_and_apply_hypothesis(
                         interaction, optimization_hypothesis
                     )
@@ -152,10 +153,10 @@ class ReflectionEngine:
     async def verify_and_apply_hypothesis(
         self, interaction: Dict[str, Any], hypothesis: Dict[str, Any]
     ):
-        """在内部模拟、验证并最终应用一个优化假设。"""
+        """Internally simulate, verify, and finally apply an optimization hypothesis."""
         logger.info(f"Verifying hypothesis: {hypothesis}")
 
-        # 1. 运行内部模拟，获取“虚拟”的新响应
+        # 1. Run internal simulation to get a "virtual" new response
         new_response_content = await self._run_internal_simulation(
             interaction, hypothesis
         )
@@ -163,7 +164,7 @@ class ReflectionEngine:
             logger.error("Internal simulation failed. Aborting hypothesis verification.")
             return
 
-        # 2. 将新响应再次交给“目标预言机”评分
+        # 2. Submit the new response to the "Goal Oracle" for scoring
         verification_result = await self.run_goal_oracle(
             interaction["request"], new_response_content
         )
@@ -171,12 +172,12 @@ class ReflectionEngine:
             logger.error("Goal Oracle failed during verification. Aborting.")
             return
 
-        original_score = interaction.get("score", 0.3) # 假设原始分数已存
+        original_score = interaction.get("score", 0.3) # Assume original score is stored
         new_score = verification_result.get("goal_alignment_score", 0.0)
         logger.info(f"Verification result: New score {new_score:.2f} vs. Original score {original_score:.2f}")
 
-        # 3. 对比验证结果，决定是否应用
-        if new_score > original_score + 0.2: # 阈值，避免微小波动
+        # 3. Compare verification results and decide whether to apply
+        if new_score > original_score + 0.2: # Threshold to avoid minor fluctuations
             logger.info("Hypothesis verified successfully. Applying permanent optimization.")
             self._apply_permanent_optimization(hypothesis)
         else:
@@ -185,29 +186,29 @@ class ReflectionEngine:
     async def _run_internal_simulation(
         self, interaction: Dict[str, Any], hypothesis: Dict[str, Any]
     ) -> Optional[str]:
-        """创建一个临时的‘虚拟 Agent’来运行模拟，并返回其响应。"""
+        """Create a temporary 'virtual Agent' to run simulation and return its response."""
         try:
             hypo_details = hypothesis.get("optimization_hypothesis", {})
             hypo_type = hypo_details.get("type")
 
             logger.info(f"Running internal simulation for hypothesis type: {hypo_type}")
 
-            # 1. 创建一个隔离的模拟环境
-            # 深度复制状态，确保模拟不影响真实状态
+            # 1. Create an isolated simulation environment
+            # Deep copy state to ensure simulation doesn't affect real state
             virtual_state = self.state.model_copy(deep=True)
 
-            # 为本次模拟创建一个临时的、被修改过的 PromptManager
+            # Create a temporary, modified PromptManager for this simulation
             virtual_prompt_manager = self._create_virtual_prompt_manager(hypothesis)
             if not virtual_prompt_manager:
                 return None
 
-            # 创建一个使用虚拟组件的“虚拟”被动引擎
-            # 注意：这是一个简化的工厂方法，实际产品中需要更完善的依赖注入
+            # Create a "virtual" reactive engine using virtual components
+            # Note: This is a simplified factory method, a complete production implementation would need more robust dependency injection
             virtual_reactive_engine = self._create_virtual_reactive_engine(
                 virtual_state, virtual_prompt_manager
             )
 
-            # 2. 在虚拟引擎上重新运行原始请求
+            # 2. Re-run the original request on the virtual engine
             logger.info("Executing request on virtual engine...")
             response = await virtual_reactive_engine.process_direct(
                 interaction["request"], session_key="simulation"
@@ -221,7 +222,7 @@ class ReflectionEngine:
     def _create_virtual_prompt_manager(
         self, hypothesis: Dict[str, Any]
     ) -> Optional[PromptManager]:
-        """为模拟创建一个临时的、被修改过的 PromptManager。"""
+        """Create a temporary, modified PromptManager for simulation."""
         from crabclaw.prompts.manager import PromptManager
         hypo_details = hypothesis.get("optimization_hypothesis", {})
         hypo_type = hypo_details.get("type")
@@ -229,12 +230,12 @@ class ReflectionEngine:
         hypo_change = hypo_details.get("proposed_change")
 
         if hypo_type != "prompt_template_modification":
-            # 对于非提示词修改，我们可以使用原始的 prompt_manager
+            # For non-prompt modifications, we can use the original prompt_manager
             return self.prompt_manager
 
-        # 创建一个新的 PromptManager 实例，它继承了所有现有的模板
+        # Create a new PromptManager instance that inherits all existing templates
         virtual_manager = PromptManager(self.prompt_manager.templates_dir)
-        # 在内存中直接覆盖要修改的模板
+        # Directly override the template to be modified in memory
         if hypo_target in virtual_manager.templates:
             virtual_manager.templates[hypo_target]["template"] = hypo_change
             logger.debug(f"Virtual prompt manager created with modified template: {hypo_target}")
@@ -246,22 +247,22 @@ class ReflectionEngine:
     def _create_virtual_reactive_engine(
         self, virtual_state: InternalState, virtual_prompt_manager: PromptManager
     ) -> "AgentLoop":
-        """(简化版工厂) 创建一个用于模拟的被动引擎实例。"""
+        """(Simplified factory) Create a reactive engine instance for simulation."""
         from crabclaw.agent.loop import AgentLoop
 
-        # 注意：这里我们只替换了核心的 provider 和 workspace，
-        # 一个完整的产品级实现需要处理所有依赖。
+        # Note: Here we only replace the core provider and workspace,
+        # a complete production implementation would need to handle all dependencies.
         return AgentLoop(
-            bus=self.bus, # 共享 bus 以便接收响应
-            provider=self.provider, # 共享 provider
-            workspace=Path("~/.crabclaw/simulation_workspace"), # 使用一个隔离的工作区
+            bus=self.bus, # Share bus to receive responses
+            provider=self.provider, # Share provider
+            workspace=Path("~/.crabclaw/simulation_workspace"), # Use an isolated workspace
             internal_state=virtual_state,
-            audit_logger=None, # 模拟过程不产生审计日志
+            audit_logger=None, # Simulation process doesn't generate audit logs
             prompt_manager=virtual_prompt_manager
         )
 
     def _apply_permanent_optimization(self, hypothesis: Dict[str, Any]):
-        """将一个已验证的优化假设永久性地应用到 Agent 的配置中。"""
+        """Permanently apply a verified optimization hypothesis to the Agent's configuration."""
         try:
             hypo_type = hypothesis.get("optimization_hypothesis", {}).get("type")
             hypo_target = hypothesis.get("optimization_hypothesis", {}).get("target")
@@ -272,12 +273,12 @@ class ReflectionEngine:
                 return
 
             if hypo_type == "state_parameter_adjustment":
-                # 处理对 InternalState 参数的直接调整
+                # Handle direct adjustment of InternalState parameters
                 if hasattr(self.state, hypo_target):
                     current_value = getattr(self.state, hypo_target)
-                    # 简单的数学运算处理
+                    # Simple mathematical operation handling
                     if isinstance(current_value, (int, float)):
-                        # 注意：eval() 有安全风险，此处用非常受限的方式处理
+                        # Note: eval() has security risks, handled here in a very restricted manner
                         if hypo_change.startswith(("+", "-")):
                             new_value = current_value + float(hypo_change)
                         else:
@@ -309,7 +310,7 @@ class ReflectionEngine:
     async def run_root_cause_analysis(
         self, log_chain: List[Dict[str, Any]], oracle_result: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """对低分行为进行根本原因分析，并生成优化假设。"""
+        """Perform root cause analysis on low-scoring behavior and generate optimization hypotheses."""
         prompt = self.prompt_manager.format(
             "reflection_root_cause_analysis",
             long_term_goal=self.state.long_term_goal,
@@ -328,7 +329,7 @@ class ReflectionEngine:
             return None
 
     def _extract_interactions(self, logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """从日志条目中按 session_key 提取完整的交互链。"""
+        """Extract complete interaction chains by session_key from log entries."""
         sessions: Dict[str, List[Dict[str, Any]]] = {}
         for log in logs:
             session_key = log.get("details", {}).get("session_key")
@@ -339,7 +340,7 @@ class ReflectionEngine:
 
         interactions = []
         for session_key, session_logs in sessions.items():
-            # 简单的假设：每个会话的第一个 InboundMessage 是请求，最后一个 OutboundMessage 是响应
+            # Simple assumption: The first InboundMessage in each session is the request, the last OutboundMessage is the response
             inbound_logs = [log for log in session_logs if log["event_type"] == "InboundMessage"]
             outbound_logs = [log for log in session_logs if log["event_type"] == "OutboundMessage"]
 
@@ -353,7 +354,7 @@ class ReflectionEngine:
 
     async def _loop(self, interval_seconds: int):
         """
-        引擎的主循环，定期运行 run_cycle。
+        Engine's main loop, regularly runs run_cycle.
         """
         self._running = True
         logger.info(f"Reflection Engine started with {interval_seconds}s interval.")
@@ -369,12 +370,12 @@ class ReflectionEngine:
                 await asyncio.sleep(interval_seconds)
         logger.info("Reflection Engine stopped.")
 
-    def start(self, interval_seconds: int = 3600):  # 默认为每小时反思一次
-        """在后台启动反思引擎。"""
+    def start(self, interval_seconds: int = 3600):  # Default: reflect every hour
+        """Start the reflection engine in the background."""
         if not self._running:
             self._task = asyncio.create_task(self._loop(interval_seconds))
 
     def stop(self):
-        """停止反思引擎。"""
+        """Stop the reflection engine."""
         if self._task and not self._task.done():
             self._task.cancel()

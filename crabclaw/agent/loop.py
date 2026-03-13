@@ -145,7 +145,7 @@ class AgentLoop:
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         
-        # 注册内部工具
+        # Register internal tools
         if self.skill_manager:
             from crabclaw.agent.tools.internal import ReloadSkillsTool
             self.tools.register(ReloadSkillsTool(self.skill_manager))

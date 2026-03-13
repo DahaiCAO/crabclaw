@@ -108,6 +108,30 @@ class DashboardServer:
                                     "type": "chat_response",
                                     "data": {"response": response}
                                 }, ensure_ascii=False))
+                            
+                            elif msg_type == "get_files":
+                                files = self._get_prompt_files()
+                                await ws.send(json.dumps({
+                                    "type": "files",
+                                    "data": {"files": files}
+                                }, ensure_ascii=False))
+                            
+                            elif msg_type == "get_file_content":
+                                file_name = data.get("data", {}).get("file_name", "")
+                                content = self._get_file_content(file_name)
+                                await ws.send(json.dumps({
+                                    "type": "file_content",
+                                    "data": {"file_name": file_name, "content": content}
+                                }, ensure_ascii=False))
+                            
+                            elif msg_type == "save_file":
+                                file_name = data.get("data", {}).get("file_name", "")
+                                content = data.get("data", {}).get("content", "")
+                                success = self._save_file(file_name, content)
+                                await ws.send(json.dumps({
+                                    "type": "file_saved",
+                                    "data": {"file_name": file_name, "success": success}
+                                }, ensure_ascii=False))
                                 
                         except json.JSONDecodeError:
                             pass
@@ -157,6 +181,93 @@ class DashboardServer:
             }
         except Exception as e:
             return {"error": str(e)}
+    
+    def _get_workspace_path(self) -> str:
+        try:
+            from crabclaw.config.loader import load_config
+            config = load_config()
+            return str(config.workspace_path)
+        except Exception as e:
+            return ""
+    
+    def _get_prompt_files(self) -> list:
+        try:
+            from pathlib import Path
+            workspace_path = self._get_workspace_path()
+            if not workspace_path:
+                return []
+            
+            workspace = Path(workspace_path)
+            prompts_dir = workspace / "prompts"
+            files = []
+            
+            # Load files from workspace/prompts
+            if prompts_dir.exists():
+                for file_path in prompts_dir.glob("*.md"):
+                    files.append({
+                        "name": file_path.name,
+                        "size": file_path.stat().st_size
+                    })
+            
+            # Also load other md files from workspace root
+            for file_path in workspace.glob("*.md"):
+                files.append({
+                    "name": file_path.name,
+                    "size": file_path.stat().st_size
+                })
+            
+            return files
+        except Exception as e:
+            return []
+    
+    def _get_file_content(self, file_name: str) -> str:
+        try:
+            from pathlib import Path
+            workspace_path = self._get_workspace_path()
+            if not workspace_path:
+                return ""
+            
+            workspace = Path(workspace_path)
+            
+            # Try to find file in workspace/prompts first
+            file_path = workspace / "prompts" / file_name
+            if file_path.exists() and file_path.suffix == ".md":
+                return file_path.read_text(encoding="utf-8")
+            
+            # Then try workspace root
+            file_path = workspace / file_name
+            if file_path.exists() and file_path.suffix == ".md":
+                return file_path.read_text(encoding="utf-8")
+            
+            return ""
+        except Exception as e:
+            return ""
+    
+    def _save_file(self, file_name: str, content: str) -> bool:
+        try:
+            from pathlib import Path
+            workspace_path = self._get_workspace_path()
+            if not workspace_path:
+                return False
+            
+            workspace = Path(workspace_path)
+            
+            # Try to save in workspace/prompts first
+            file_path = workspace / "prompts" / file_name
+            if file_path.suffix == ".md":
+                file_path.parent.mkdir(exist_ok=True)
+                file_path.write_text(content, encoding="utf-8")
+                return True
+            
+            # Then try workspace root
+            file_path = workspace / file_name
+            if file_path.suffix == ".md":
+                file_path.write_text(content, encoding="utf-8")
+                return True
+            
+            return False
+        except Exception as e:
+            return False
     
     async def _process_chat_message(self, message: str) -> str:
         try:
