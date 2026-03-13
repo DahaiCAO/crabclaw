@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from crabclaw.utils.helpers import sync_workspace_templates
-from crabclaw.prompts.manager import PromptManager
+from crabclaw.templates.manager import PromptManager
 
 def test_sync_prompts():
     """Test that prompt files are synced to workspace/prompts."""

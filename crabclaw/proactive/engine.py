@@ -15,7 +15,7 @@ from crabclaw.proactive.library import ActionLibrary
 from crabclaw.proactive.selector import ActionSelector
 from crabclaw.proactive.state import InternalState
 from crabclaw.proactive.triggers import TriggerSystem
-from crabclaw.prompts.manager import PromptManager
+from crabclaw.templates.manager import PromptManager
 from crabclaw.providers.base import LLMProvider
 
 # Configure logger

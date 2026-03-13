@@ -12,7 +12,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from crabclaw.proactive.state import InternalState
-from crabclaw.prompts.manager import PromptManager
+from crabclaw.templates.manager import PromptManager
 from crabclaw.providers.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ class ReflectionEngine:
         self, hypothesis: Dict[str, Any]
     ) -> Optional[PromptManager]:
         """Create a temporary, modified PromptManager for simulation."""
-        from crabclaw.prompts.manager import PromptManager
+        from crabclaw.templates.manager import PromptManager
         hypo_details = hypothesis.get("optimization_hypothesis", {})
         hypo_type = hypo_details.get("type")
         hypo_target = hypo_details.get("target")

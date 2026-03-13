@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from crabclaw.cron.service import CronService
     from crabclaw.proactive.state import InternalState
     from crabclaw.reflection.logger import AuditLogger
-    from crabclaw.prompts.manager import PromptManager
+    from crabclaw.templates.manager import PromptManager
     from crabclaw.agent.tools.registry import ToolRegistry
     from crabclaw.skills.manager import SkillManager
 

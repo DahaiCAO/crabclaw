@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from crabclaw.proactive.library import ActionLibrary, BaseAction
 from crabclaw.proactive.state import InternalState
 from crabclaw.proactive.triggers import TriggerEvent
-from crabclaw.prompts.manager import PromptManager
+from crabclaw.templates.manager import PromptManager
 from crabclaw.providers.base import LLMProvider
 
 

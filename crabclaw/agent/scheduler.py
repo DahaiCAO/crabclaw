@@ -19,7 +19,7 @@ from crabclaw.cron.service import CronService
 from crabclaw.cron.types import CronJob
 from crabclaw.heartbeat.service import HeartbeatService
 from crabclaw.providers.base import LLMProvider
-from crabclaw.prompts.manager import PromptManager
+from crabclaw.templates.manager import PromptManager
 from crabclaw.proactive.engine import ProactiveEngine  # Proactive engine
 from crabclaw.proactive.state import InternalState
 from crabclaw.reflection.engine import ReflectionEngine  # Reflection engine
