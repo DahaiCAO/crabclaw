@@ -1,4 +1,4 @@
-# 🦀 Crabclaw — A Personal AI Mate that can think and take actions
+# 🦀 Crabclaw — A Personal AI Mate that is thinkable
 
 <p align="center">
   <picture>

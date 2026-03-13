@@ -1,9 +1,9 @@
-# 🦀 crabclaw — 个人 AI 助手框架
+# 🦀 Crabclaw — 一个能思考的 AI 助手
  
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="crabclaw_logo.png">
-    <img src="crabclaw_logo.png" alt="crabclaw" width="500">
+    <source media="(prefers-color-scheme: light)" srcset="Crabclaw-logo.jpg">
+    <img src="Crabclaw-logo.jpg" alt="crabclaw" width="200">
   </picture>
 </p>
  
