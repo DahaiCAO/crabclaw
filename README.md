@@ -3,7 +3,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="Crabclaw-logo.jpg">
-    <img src="Crabclaw-logo.jpg" alt="crabclaw" width="500">
+    <img src="Crabclaw-logo.jpg" alt="crabclaw" width="100">
   </picture>
 </p>
 
