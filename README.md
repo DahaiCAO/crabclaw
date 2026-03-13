@@ -1,9 +1,9 @@
-# 🦀 crabclaw — A Personal AI Assistant with "SOUL"
+# 🦀 Crabclaw — A Personal AI Mate that can think and take actions
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="crabclaw_logo.png">
-    <img src="crabclaw_logo.png" alt="crabclaw" width="500">
+    <source media="(prefers-color-scheme: light)" srcset="Crabclaw-logo.jpg">
+    <img src="Crabclaw-logo.jpg" alt="crabclaw" width="500">
   </picture>
 </p>
 
