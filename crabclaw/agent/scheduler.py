@@ -8,6 +8,7 @@ and managing shared resources and state persistence.
 import asyncio
 import logging
 import signal
+import time
 from pathlib import Path
 
 from crabclaw.agent.loop import AgentLoop  # Reactive engine
@@ -24,6 +25,7 @@ from crabclaw.proactive.engine import ProactiveEngine  # Proactive engine
 from crabclaw.proactive.state import InternalState
 from crabclaw.reflection.engine import ReflectionEngine  # Reflection engine
 from crabclaw.reflection.logger import AuditLogger
+from crabclaw.reflection.prompt_evolution import PromptEvolutionManager
 from crabclaw.session.manager import SessionManager
 from crabclaw.agent.tools.registry import ToolRegistry
 from crabclaw.dashboard.broadcaster import DashboardBroadcaster
@@ -74,11 +76,17 @@ class BehaviorScheduler:
         self.proactive_engine = self._init_proactive_engine()
         self.reflection_engine = self._init_reflection_engine()
         
-        # 5. Initialize heartbeat service (depends on reactive engine)
+        # 5. Initialize prompt evolution manager
+        self.prompt_evolution = self._init_prompt_evolution_manager()
+        
+        # 6. Initialize heartbeat service (depends on reactive engine)
         self.heartbeat_service = self._init_heartbeat_service()
 
-        # 6. Establish callback dependencies between services
+        # 7. Establish callback dependencies between services
         self._setup_callbacks()
+        
+        # 8. Start prompt evolution background task
+        self._evolution_task: asyncio.Task | None = None
 
         self._tasks = []
 
@@ -218,6 +226,13 @@ class BehaviorScheduler:
             on_event=self._on_reflection_event,
         )
 
+    def _init_prompt_evolution_manager(self) -> PromptEvolutionManager:
+        return PromptEvolutionManager(
+            prompt_manager=self.prompt_manager,
+            provider=self.provider,
+            workspace=self.workspace,
+        )
+
     def _on_reflection_event(self, event: dict) -> None:
         try:
             asyncio.get_running_loop().create_task(
@@ -241,6 +256,31 @@ class BehaviorScheduler:
     def _setup_callbacks(self):
         """Set up callback functions between services."""
         self.cron_service.on_job = self._on_cron_job
+        
+        # Set up prompt manager change callback for hot-reload notifications
+        self.prompt_manager.add_change_callback(self._on_prompt_changed)
+
+    def _on_prompt_changed(self, template_name: str, new_content: str):
+        """Callback when a prompt template is changed.
+        
+        Args:
+            template_name: Name of the changed template.
+            new_content: New content of the template.
+        """
+        logger.info("Prompt template '%s' changed, broadcasting to dashboard", template_name)
+        try:
+            # Broadcast to dashboard
+            asyncio.get_running_loop().create_task(
+                self.dashboard_broadcaster.publish("template_reloaded", {
+                    "template_name": template_name,
+                    "file_name": f"{template_name.upper()}.md",
+                    "message": f"Template '{template_name.upper()}.md' has been hot-reloaded",
+                    "timestamp": time.time()
+                })
+            )
+        except RuntimeError:
+            # No event loop running, ignore
+            pass
 
     async def _on_cron_job(self, job: CronJob) -> str | None:
         """Execute a cron job."""
@@ -334,13 +374,16 @@ class BehaviorScheduler:
         if self.config.reflection.enabled:
             self.reflection_engine.start(interval_seconds=self.config.reflection.interval)
         
+        # Start prompt evolution background task (runs every 30 minutes)
+        self._evolution_task = asyncio.create_task(self._run_prompt_evolution())
+        
         # Start the core reactive engine and channel manager
         reactive_task = asyncio.create_task(self.reactive_engine.run())
         channels_task = asyncio.create_task(self.channel_manager.start_all())
         self._tasks.extend([reactive_task, channels_task])
 
         logger.info("All services and engines are now running.")
-        logger.info("Dashboard: {}", self.dashboard_server.http_url)
+        logger.info("Dashboard: %s", self.dashboard_server.http_url)
 
         # Gracefully handle stop signals
         loop = asyncio.get_running_loop()
@@ -379,8 +422,51 @@ class BehaviorScheduler:
         except asyncio.CancelledError:
             logger.info("Scheduler main loop was cancelled.")
 
+    async def _run_prompt_evolution(self):
+        """Background task for continuous prompt evolution."""
+        while True:
+            try:
+                await asyncio.sleep(1800)  # Run every 30 minutes
+                logger.info("Running prompt evolution analysis...")
+                
+                records = await self.prompt_evolution.analyze_and_evolve()
+                
+                if records:
+                    logger.info("Applied %s prompt improvements", len(records))
+                    # Broadcast evolution event to dashboard
+                    for record in records:
+                        try:
+                            asyncio.get_running_loop().create_task(
+                                self.dashboard_broadcaster.publish("prompt_evolution", {
+                                    "template_name": record.template_name,
+                                    "change_type": record.change_type,
+                                    "rationale": record.rationale,
+                                    "expected_improvement": record.expected_improvement,
+                                    "timestamp": record.timestamp.isoformat()
+                                })
+                            )
+                        except RuntimeError:
+                            pass
+                else:
+                    logger.debug("No prompt improvements needed at this time")
+                    
+            except asyncio.CancelledError:
+                logger.info("Prompt evolution task was cancelled")
+                break
+            except Exception as e:
+                logger.error("Error in prompt evolution task: %s", e)
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying
+
     async def stop(self):
         logger.info("Behavior Scheduler stopping all services and engines...")
+        
+        # Cancel prompt evolution task
+        if self._evolution_task:
+            self._evolution_task.cancel()
+            try:
+                await self._evolution_task
+            except asyncio.CancelledError:
+                pass
         
         # Stop all background tasks and engines
         self.proactive_engine.stop()

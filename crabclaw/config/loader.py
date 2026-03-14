@@ -9,6 +9,7 @@ from crabclaw.config.secure_loader import (
     load_config,
     sanitize_config_for_display,
     save_config,
+    set_config_path,
     validate_config_security,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     'get_data_dir',
     'load_config',
     'save_config',
+    'set_config_path',
     '_migrate_config',
     'validate_config_security',
     'sanitize_config_for_display',

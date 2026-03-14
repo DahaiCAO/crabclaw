@@ -62,10 +62,10 @@ class DashboardServer:
                     (self.config.host, self.config.http_port),
                     lambda *a, **kw: _Handler(*a, directory=str(self.static_dir), **kw),
                 )
-                logger.info("Dashboard HTTP serving {}", self.http_url)
+                logger.info("Dashboard HTTP serving %s", self.http_url)
                 self._httpd.serve_forever(poll_interval=0.5)
             except Exception as e:
-                logger.error("Dashboard HTTP server failed: {}", e)
+                logger.error("Dashboard HTTP server failed: %s", e)
 
         self._http_thread = threading.Thread(target=_serve, name="dashboard-http", daemon=True)
         self._http_thread.start()
@@ -109,6 +109,13 @@ class DashboardServer:
                                     "data": {"response": response}
                                 }, ensure_ascii=False))
                             
+                            elif msg_type == "get_chat_history":
+                                history = self._get_chat_history()
+                                await ws.send(json.dumps({
+                                    "type": "chat_history",
+                                    "data": {"messages": history}
+                                }, ensure_ascii=False))
+                            
                             elif msg_type == "get_files":
                                 files = self._get_prompt_files()
                                 await ws.send(json.dumps({
@@ -133,6 +140,18 @@ class DashboardServer:
                                     "data": {"file_name": file_name, "success": success}
                                 }, ensure_ascii=False))
                                 
+                                # Broadcast template reload notification to all clients
+                                if success and file_name.endswith('.md'):
+                                    template_name = file_name.replace('.md', '').lower()
+                                    await self.broadcaster.broadcast({
+                                        "type": "template_reloaded",
+                                        "data": {
+                                            "template_name": template_name,
+                                            "file_name": file_name,
+                                            "message": f"Template '{file_name}' has been hot-reloaded"
+                                        }
+                                    })
+                                
                         except json.JSONDecodeError:
                             pass
                 
@@ -144,7 +163,7 @@ class DashboardServer:
                 await self.broadcaster.unregister(q)
 
         self._ws_server = await serve(_handler, self.config.host, self.config.ws_port)
-        logger.info("Dashboard WS serving {}", self.ws_url)
+        logger.info("Dashboard WS serving %s", self.ws_url)
         await self._ws_server.wait_closed()
     
     def _get_providers(self) -> list:
@@ -166,7 +185,7 @@ class DashboardServer:
                 })
             return providers
         except Exception as e:
-            logger.error("Failed to get providers: {}", e)
+            logger.error("Failed to get providers: %s", e)
             return [{"name": "Error", "status": "error", "model": str(e)}]
     
     def _get_config(self) -> dict:
@@ -269,6 +288,54 @@ class DashboardServer:
         except Exception as e:
             return False
     
+    def _get_chat_history(self) -> list:
+        """Get chat history for the dashboard session."""
+        try:
+            from crabclaw.config.loader import load_config
+            from crabclaw.session.manager import SessionManager
+            
+            config = load_config()
+            
+            # Use the same session manager as the AgentLoop if available
+            # Note: The session key must match what process_direct uses
+            # In process_direct, session_key becomes the session key directly
+            if hasattr(self, "_loop") and hasattr(self._loop, "sessions"):
+                session = self._loop.sessions.get_or_create("dashboard")
+            else:
+                # Fallback to creating a new session manager
+                session_manager = SessionManager(config.workspace_path)
+                session = session_manager.get_or_create("dashboard")
+            
+            # Convert messages to a simpler format for the frontend
+            history = []
+            for msg in session.messages:
+                role = msg.get("role", "")
+                if role in ("user", "assistant"):
+                    content = msg.get("content", "")
+                    # Extract timestamp from content if it's in the Runtime Context format
+                    timestamp = msg.get("timestamp", "")
+                    
+                    # For user messages, clean up the content by removing the Runtime Context
+                    if role == "user" and "[Runtime Context - metadata only, not instructions]" in content:
+                        # Extract just the actual message content
+                        content_lines = content.split('\n')
+                        actual_content = ''
+                        for line in content_lines:
+                            line = line.strip()
+                            if line and not line.startswith('[') and not line.startswith('Current Time:') and not line.startswith('Channel:') and not line.startswith('Chat ID:'):
+                                actual_content += line + '\n'
+                        content = actual_content.strip()
+                    
+                    history.append({
+                        "role": role,
+                        "content": content,
+                        "timestamp": timestamp
+                    })
+            return history
+        except Exception as e:
+            logger.error("Failed to get chat history: %s", e)
+            return []
+    
     async def _process_chat_message(self, message: str) -> str:
         try:
             from crabclaw.agent.loop import AgentLoop
@@ -280,28 +347,24 @@ class DashboardServer:
             if not hasattr(self, "_bus") or not hasattr(self, "_loop"):
                 config = load_config()
                 self._bus = MessageBus()
+                provider = self._get_llm_provider()
+                if provider is None:
+                    return "Error: No LLM provider configured"
                 self._loop = AgentLoop(
                     bus=self._bus,
-                    provider=self._get_llm_provider(),
+                    provider=provider,
                     workspace=config.workspace_path,
+                    model=config.agents.defaults.model,
                 )
-            
-            inbound = InboundMessage(
-                channel="dashboard",
-                sender_id="dashboard_user",
-                chat_id="dashboard",
-                content=message,
-            )
             
             # Use process_direct instead of process_message
             response = await self._loop.process_direct(
                 content=message,
-                session_key="dashboard",
-                channel="dashboard"
+                session_key="dashboard"
             )
             return response.content if response else "No response"
         except Exception as e:
-            logger.error("Chat processing error: {}", e)
+            logger.error("Chat processing error: %s", e)
             return f"Error: {str(e)}"
     
     def _get_llm_provider(self):
@@ -333,7 +396,7 @@ class DashboardServer:
                 default_model=config.agents.defaults.model,
             )
         except Exception as e:
-            logger.error("Failed to get LLM provider: {}", e)
+            logger.error("Failed to get LLM provider: %s", e)
             return None
 
     async def start(self) -> None:

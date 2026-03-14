@@ -31,7 +31,9 @@
 
 它受到 [OpenClaw](https://github.com/openclaw/openclaw) 启发。
 
-**crabclaw** 是一个超轻量、可扩展的个人 AI 助手框架。它以 **HABOS（Human-like Agent Behavior Operating System）** 为核心设计哲学：通过 **双引擎（被动 Reactive + 主动 Proactive）** 与 **内部状态（Internal State）**，让 Agent 从“被动工具”升级为“有目标、有边界、会反思”的伙伴。
+**crabclaw** 是一个超轻量、可扩展的个人 AI 助手框架。它以 **HABOS（Human-like Agent Behavior Operating System）** 为
+核心设计哲学：通过 **双引擎（被动 Reactive + 主动 Proactive）** 与 **内部状态（Internal State）**，让 Agent 从“被动 
+工具”升级为“有目标、有边界、会反思”的伙伴。
 
 ⚡️ **超轻量**：核心代码量约 **~4,000 行**，读得懂、改得动、扩展快。
 
@@ -41,7 +43,8 @@
 
 ## 🧠 HABOS：架构 2.0（双引擎 + 行为总调度器）
 
-我们把“Agent 应该如何像人一样行动”落成了可运行的软件架构：**双引擎并行**，由一个更高层的 **Behavior Scheduler** 统一调度。
+我们把“Agent 应该如何像人一样行动”落成了可运行的软件架构：**双引擎并行**，由一个更高层的 **Behavior Scheduler** 统一
+调度。
 
 ### 1) 核心：两颗心脏，同步跳动
 
@@ -89,14 +92,15 @@ graph TD
         TR --> REF[Reflection Engine]
         REF --> IS
     end
-    
+
     IS --> TS
 ```
 
 ## ✨ 核心亮点（为什么它更像“伙伴”）
 
 ### 1) 双引擎智能：不止会答，还会“想”
-传统 agent 只有输入才醒来。crabclaw 的 **Proactive Engine** 会在后台观察内部状态：当检测到风险、机会、目标偏差时，主动提出建议或提醒，并通过“打扰成本”机制避免过度打扰。
+传统 agent 只有输入才醒来。crabclaw 的 **Proactive Engine** 会在后台观察内部状态：当检测到风险、机会、目标偏差时，主
+动提出建议或提醒，并通过“打扰成本”机制避免过度打扰。
 
 ### 2) 多步推理：让 LLM 各司其职
 把复杂决策拆成多个“专用 LLM 调用”与确定性代码逻辑交织的思维链：
@@ -191,7 +195,8 @@ crabclaw agent
 | **Email** | IMAP/SMTP 账号 |
 | **QQ** | App ID + App Secret |
 
-> 详细配置请参考英文版 [README.md](README.md) 中每个通道的分步说明（包含 Telegram / Discord / Matrix / WhatsApp / 飞书 / QQ / 钉钉 / Slack / Email）。
+> 详细配置请参考英文版 [README.md](README.md) 中每个通道的分步说明（包含 Telegram / Discord / Matrix / WhatsApp / 飞
+书 / QQ / 钉钉 / Slack / Email）。
 
 ## ⚙️ 配置文件
 

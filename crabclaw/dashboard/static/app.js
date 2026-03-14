@@ -1,5 +1,42 @@
 function qs(id){ return document.getElementById(id); }
 
+// Notification system
+function showNotification(message, type = "info") {
+  const notification = document.createElement("div");
+  notification.className = `notification notification-${type}`;
+  notification.textContent = message;
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    z-index: 10000;
+    animation: slideIn 0.3s ease;
+    max-width: 400px;
+    word-wrap: break-word;
+  `;
+  
+  // Set background color based on type
+  const colors = {
+    success: "#10b981",
+    error: "#ef4444",
+    warning: "#f59e0b",
+    info: "#3b82f6"
+  };
+  notification.style.backgroundColor = colors[type] || colors.info;
+  
+  document.body.appendChild(notification);
+  
+  // Auto remove after 5 seconds
+  setTimeout(() => {
+    notification.style.animation = "slideOut 0.3s ease";
+    setTimeout(() => notification.remove(), 300);
+  }, 5000);
+}
+
 const connPill = qs("conn-pill");
 const wsUrlPill = qs("ws-url-pill");
 const statePre = qs("state-pre");
@@ -17,6 +54,47 @@ const chatInput = qs("chat-input");
 const sendButton = qs("send-button");
 
 // Chat functionality
+function loadChatHistory(messages) {
+  // Clear existing messages
+  chatMessages.innerHTML = '';
+  
+  // Add each message from history
+  messages.forEach(msg => {
+    const isUser = msg.role === 'user';
+    const messageDiv = document.createElement("div");
+    messageDiv.className = `chat-message ${isUser ? "user" : "assistant"}`;
+    
+    const avatarDiv = document.createElement("div");
+    avatarDiv.className = "message-avatar";
+    avatarDiv.textContent = isUser ? "👤" : "🦀";
+    
+    const contentContainer = document.createElement("div");
+    contentContainer.className = "message-content-container";
+    
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "message-content";
+    contentDiv.textContent = msg.content;
+    
+    contentContainer.appendChild(contentDiv);
+    
+    // Add timestamp if available
+    if (msg.timestamp) {
+      const timestampDiv = document.createElement("div");
+      timestampDiv.className = "message-timestamp";
+      const date = new Date(msg.timestamp);
+      timestampDiv.textContent = date.toLocaleString();
+      contentContainer.appendChild(timestampDiv);
+    }
+    
+    messageDiv.appendChild(avatarDiv);
+    messageDiv.appendChild(contentContainer);
+    chatMessages.appendChild(messageDiv);
+  });
+  
+  // Auto scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 function addChatMessage(content, isUser) {
   const messageDiv = document.createElement("div");
   messageDiv.className = `chat-message ${isUser ? "user" : "assistant"}`;
@@ -25,12 +103,23 @@ function addChatMessage(content, isUser) {
   avatarDiv.className = "message-avatar";
   avatarDiv.textContent = isUser ? "👤" : "🦀";
   
+  const contentContainer = document.createElement("div");
+  contentContainer.className = "message-content-container";
+  
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
   contentDiv.textContent = content;
   
+  contentContainer.appendChild(contentDiv);
+  
+  // Add timestamp
+  const timestampDiv = document.createElement("div");
+  timestampDiv.className = "message-timestamp";
+  timestampDiv.textContent = new Date().toLocaleString();
+  contentContainer.appendChild(timestampDiv);
+  
   messageDiv.appendChild(avatarDiv);
-  messageDiv.appendChild(contentDiv);
+  messageDiv.appendChild(contentContainer);
   chatMessages.appendChild(messageDiv);
   
   // Auto scroll to bottom
@@ -45,7 +134,7 @@ sendButton.addEventListener("click", () => {
     chatInput.value = "";
     
     // Send message to backend via WebSocket
-    if (window.ws) {
+    if (window.ws && window.ws.readyState === WebSocket.OPEN) {
       const payload = JSON.stringify({
         type: "chat_message",
         data: {
@@ -124,10 +213,14 @@ document.addEventListener('click', (e) => {
   }
 
   function loadFileContent(fileName) {
-    ws.send(JSON.stringify({
-      type: 'get_file_content',
-      data: { file_name: fileName }
-    }));
+    if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+      window.ws.send(JSON.stringify({
+        type: 'get_file_content',
+        data: { file_name: fileName }
+      }));
+    } else {
+      showNotification('WebSocket not connected', 'error');
+    }
   }
 
   function saveFile() {
@@ -135,17 +228,25 @@ document.addEventListener('click', (e) => {
     const content = document.getElementById('file-content').value;
 
     if (fileName !== 'Select a file') {
-      ws.send(JSON.stringify({
-        type: 'save_file',
-        data: { file_name: fileName, content: content }
-      }));
+      if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+        window.ws.send(JSON.stringify({
+          type: 'save_file',
+          data: { file_name: fileName, content: content }
+        }));
+      } else {
+        showNotification('WebSocket not connected', 'error');
+      }
     }
   }
 
   // Load files when Core Files section is selected
   document.addEventListener('click', (e) => {
     if (e.target.closest('.menu-item[data-section="core-files"]')) {
-      ws.send(JSON.stringify({ type: 'get_files' }));
+      if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+        window.ws.send(JSON.stringify({ type: 'get_files' }));
+      } else {
+        showNotification('WebSocket not connected', 'error');
+      }
     }
   });
 
@@ -323,7 +424,8 @@ function pretty(obj){
 function connect(){
   const url = new URL(window.location.href);
   const host = url.hostname || "127.0.0.1";
-  const wsPort = url.searchParams.get("ws_port") || "18792";
+  const httpPort = url.port || "18791";
+  const wsPort = parseInt(httpPort) + 1 || "18792";
   const wsUrl = `ws://${host}:${wsPort}/ws`;
   wsUrlPill.textContent = wsUrl;
 
@@ -331,7 +433,11 @@ function connect(){
   window.ws = ws; // Make ws available globally
   setConn(false, "WS: connecting…");
 
-  ws.onopen = () => setConn(true, "WS: connected");
+  ws.onopen = () => {
+    setConn(true, "WS: connected");
+    // Request chat history when connected
+    ws.send(JSON.stringify({ type: "get_chat_history" }));
+  };
   ws.onclose = () => setConn(false, "WS: disconnected (retrying)");
   ws.onerror = () => setConn(false, "WS: error (retrying)");
 
@@ -393,6 +499,24 @@ function connect(){
 
     if (type === "file_saved"){
       alert(data.success ? "File saved successfully!" : "Failed to save file.");
+      return;
+    }
+
+    if (type === "template_reloaded"){
+      showNotification(data.message || `Template '${data.file_name}' has been hot-reloaded`, "success");
+      return;
+    }
+
+    if (type === "chat_history"){
+      loadChatHistory(data.messages || []);
+      return;
+    }
+
+    if (type === "prompt_evolution"){
+      showNotification(
+        `Prompt '${data.template_name}' evolved: ${data.rationale}`,
+        "info"
+      );
       return;
     }
 

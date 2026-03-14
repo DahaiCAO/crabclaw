@@ -193,11 +193,11 @@
                 <h3>Connection / 连接</h3>
                 <div class="setting-row">
                   <span>WebSocket URL:</span>
-                  <code id="ws-url-display">ws://127.0.0.1:18792/ws</code>
+                  <code id="ws-url-display">Loading...</code>
                 </div>
                 <div class="setting-row">
                   <span>HTTP URL:</span>
-                  <code id="http-url-display">http://127.0.0.1:18791/</code>
+                  <code id="http-url-display">Loading...</code>
                 </div>
               </div>
             </div>
@@ -225,6 +225,17 @@
       </main>
     </div>
 
+    <script>
+      // Get ports from current URL
+      const url = new URL(window.location.href);
+      const host = url.hostname || "127.0.0.1";
+      const httpPort = url.port || "18791";
+      const wsPort = parseInt(httpPort) + 1 || "18792";
+      
+      // Update the displayed URLs
+      document.getElementById("ws-url-display").textContent = `ws://${host}:${wsPort}/ws`;
+      document.getElementById("http-url-display").textContent = `http://${host}:${httpPort}/`;
+    </script>
     <script src="./app.js"></script>
   </body>
 </html>

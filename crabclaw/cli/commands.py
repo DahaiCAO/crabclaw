@@ -18,7 +18,7 @@ from rich.table import Table
 from rich.text import Text
 
 from crabclaw import __logo__, __version__
-from crabclaw.config.loader import load_config
+from crabclaw.config.loader import get_config_path, load_config, set_config_path
 from crabclaw.config.schema import Config
 from crabclaw.i18n.translator import detect_system_language, set_language, translate
 from crabclaw.utils.helpers import sync_workspace_templates
@@ -42,6 +42,68 @@ app = typer.Typer(
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+
+# ---------------------------------------------------------------------------
+# Config loading utilities
+# ---------------------------------------------------------------------------
+
+def _check_port_available(port: int) -> bool:
+    """Check if a port is available on IPv4."""
+    import socket
+    # Check on localhost (127.0.0.1)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', port))
+    except OSError:
+        return False
+    
+    # Check on all interfaces (0.0.0.0)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('0.0.0.0', port))
+    except OSError:
+        return False
+    
+    return True
+
+def _suggest_available_ports(base_port: int, count: int = 2) -> list:
+    """Suggest available ports near the base port."""
+    import socket
+    available_ports = []
+    port = base_port + 1
+    while len(available_ports) < count and port < 65536:
+        if _check_port_available(port):
+            available_ports.append(port)
+        port += 1
+    return available_ports
+
+def _load_runtime_config(config_path: str | None = None, workspace: str | None = None) -> Config:
+    """Load config and optionally override active workspace.
+    
+    This function supports multi-instance configuration by allowing
+    specification of a custom config file path.
+    
+    Args:
+        config_path: Optional path to config file. If provided, sets the
+                     global config path for this instance.
+        workspace: Optional workspace directory override.
+        
+    Returns:
+        Loaded configuration object.
+    """
+    path = None
+    if config_path:
+        path = Path(config_path).expanduser().resolve()
+        if not path.exists():
+            console.print(f"[red]Error: Config file not found: {path}[/red]")
+            raise typer.Exit(1)
+        set_config_path(path)
+        console.print(f"[dim]Using config: {path}[/dim]")
+    
+    loaded = load_config(path)
+    if workspace:
+        loaded.workspace_path = workspace
+    return loaded
 
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
@@ -965,20 +1027,138 @@ def _make_provider(config: Config):
 @app.command()
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
+    dashboard_http_port: int = typer.Option(None, "--dashboard-http-port", help="Dashboard HTTP port (overrides config)"),
+    dashboard_ws_port: int = typer.Option(None, "--dashboard-ws-port", help="Dashboard WebSocket port (overrides config)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    config: str = typer.Option(None, "--config", "-c", help="Path to config file (for multi-instance support)"),
+    workspace: str = typer.Option(None, "--workspace", "-w", help="Workspace directory (overrides config)"),
 ):
-    """Start the crabclaw gateway."""
+    """Start the crabclaw gateway.
+    
+    Examples:
+        # Start with default config (~/.crabclaw/config.json)
+        crabclaw gateway
+        
+        # Start with custom config for multi-instance setup
+        crabclaw gateway --config ~/.crabclaw-telegram/config.json
+        crabclaw gateway --config ~/.crabclaw-discord/config.json
+        
+        # Override workspace for one-off runs
+        crabclaw gateway --config ~/.crabclaw-telegram/config.json --workspace /tmp/crabclaw-telegram-test
+        
+        # Override ports for multi-instance setup
+        crabclaw gateway --config ~/.crabclaw-2/config.json --port 18780 --dashboard-http-port 18781 --dashboard-ws-port 18782
+    """
     from crabclaw.agent.scheduler import BehaviorScheduler
 
-    console.print(translate("cli.gateway.starting", logo=__logo__, port=port))
-    console.print("[dim]Dashboard (if enabled): http://127.0.0.1:18791/[/dim]")
+    # Load config with optional custom path and workspace override
+    cfg = _load_runtime_config(config, workspace)
+    
+    # Override gateway port if provided
+    if port != 18790:  # If user specified a non-default port
+        # Check if the specified gateway port is available
+        if not _check_port_available(port):
+            console.print(f"[red]Error: Gateway port {port} is not available[/red]")
+            suggested_ports = _suggest_available_ports(port, 1)
+            if suggested_ports:
+                console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
+            raise typer.Exit(1)
+        
+        cfg.gateway.port = port
+        
+        # Auto-adjust dashboard ports to avoid conflicts
+        # Dashboard ports are typically gateway_port + 1 and gateway_port + 2
+        if not dashboard_http_port:
+            http_port = port + 1
+            # Find an available HTTP port
+            while not _check_port_available(http_port) and http_port < 65536:
+                http_port += 1
+            if http_port >= 65536:
+                console.print("[red]Error: No available dashboard HTTP port found[/red]")
+                raise typer.Exit(1)
+            cfg.dashboard.http_port = http_port
+            console.print(f"[dim]Auto-adjusted dashboard HTTP port to {http_port}[/dim]")
+        
+        if not dashboard_ws_port:
+            ws_port = cfg.dashboard.http_port + 1
+            # Find an available WebSocket port
+            while not _check_port_available(ws_port) and ws_port < 65536:
+                ws_port += 1
+            if ws_port >= 65536:
+                console.print("[red]Error: No available dashboard WebSocket port found[/red]")
+                raise typer.Exit(1)
+            cfg.dashboard.ws_port = ws_port
+            console.print(f"[dim]Auto-adjusted dashboard WebSocket port to {ws_port}[/dim]")
+    else:
+        # Use default port from config, but check if it's available
+        # If not available, find an alternative port
+        if not _check_port_available(cfg.gateway.port):
+            console.print(f"[yellow]Warning: Gateway port {cfg.gateway.port} is not available, finding alternative...[/yellow]")
+            suggested_ports = _suggest_available_ports(cfg.gateway.port, 1)
+            if suggested_ports:
+                cfg.gateway.port = suggested_ports[0]
+                console.print(f"[dim]Using gateway port {cfg.gateway.port}[/dim]")
+            else:
+                console.print("[red]Error: No available gateway port found[/red]")
+                raise typer.Exit(1)
+        
+        # Check if dashboard ports are available
+        if not dashboard_http_port:
+            # Dashboard HTTP port should be gateway port + 1
+            http_port = cfg.gateway.port + 1
+            # Find an available HTTP port
+            while not _check_port_available(http_port) and http_port < 65536:
+                http_port += 1
+            if http_port >= 65536:
+                console.print("[red]Error: No available dashboard HTTP port found[/red]")
+                raise typer.Exit(1)
+            if http_port != cfg.dashboard.http_port:
+                console.print(f"[yellow]Warning: Dashboard HTTP port {cfg.dashboard.http_port} is not available, using alternative...[/yellow]")
+                cfg.dashboard.http_port = http_port
+                console.print(f"[dim]Using dashboard HTTP port {cfg.dashboard.http_port}[/dim]")
+        
+        if not dashboard_ws_port:
+            # Dashboard WebSocket port should be gateway port + 2
+            ws_port = cfg.gateway.port + 2
+            # Find an available WebSocket port
+            while not _check_port_available(ws_port) and ws_port < 65536:
+                ws_port += 1
+            if ws_port >= 65536:
+                console.print("[red]Error: No available dashboard WebSocket port found[/red]")
+                raise typer.Exit(1)
+            if ws_port != cfg.dashboard.ws_port:
+                console.print(f"[yellow]Warning: Dashboard WebSocket port {cfg.dashboard.ws_port} is not available, using alternative...[/yellow]")
+                cfg.dashboard.ws_port = ws_port
+                console.print(f"[dim]Using dashboard WebSocket port {cfg.dashboard.ws_port}[/dim]")
+    
+    # Override dashboard ports if explicitly provided
+    if dashboard_http_port:
+        if not _check_port_available(dashboard_http_port):
+            console.print(f"[red]Error: Dashboard HTTP port {dashboard_http_port} is not available[/red]")
+            suggested_ports = _suggest_available_ports(dashboard_http_port, 1)
+            if suggested_ports:
+                console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
+            raise typer.Exit(1)
+        cfg.dashboard.http_port = dashboard_http_port
+    
+    if dashboard_ws_port:
+        if not _check_port_available(dashboard_ws_port):
+            console.print(f"[red]Error: Dashboard WebSocket port {dashboard_ws_port} is not available[/red]")
+            suggested_ports = _suggest_available_ports(dashboard_ws_port, 1)
+            if suggested_ports:
+                console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
+            raise typer.Exit(1)
+        cfg.dashboard.ws_port = dashboard_ws_port
+    
+    sync_workspace_templates(cfg.workspace_path)
 
-    config = load_config()
-    config.gateway.port = port
-    sync_workspace_templates(config.workspace_path)
+    console.print(translate("cli.gateway.starting", logo=__logo__, port=cfg.gateway.port))
+    console.print(f"[dim]Config: {get_config_path()}[/dim]")
+    console.print(f"[dim]Data directory: {cfg.workspace_path.parent}[/dim]")
+    console.print(f"[dim]Dashboard (if enabled): http://127.0.0.1:{cfg.dashboard.http_port}/[/dim]")
 
     # Initialize the main scheduler, which will be responsible for managing all engines
-    scheduler = BehaviorScheduler(config)
+    scheduler = BehaviorScheduler(cfg)
 
     async def run():
         try:
