@@ -280,32 +280,49 @@ def _initialize_crabclaw():
 
 
 @onboard_app.callback(invoke_without_command=True)
-def onboard_callback():
+def onboard_callback(
+    ctx: typer.Context,
+    config: str = typer.Option(None, "--config", "-c", help="Path to config file (for multi-instance support)"),
+    workspace: str = typer.Option(None, "--workspace", "-w", help="Workspace directory (overrides config)"),
+):
     """Initialize and configure crabclaw (interactive wizard)."""
+    # Set config path if provided
+    if config:
+        set_config_path(Path(config).expanduser().resolve())
+    
     # When no subcommand is provided, run the setup wizard
-    setup()
+    if ctx.invoked_subcommand is None:
+        setup(workspace=workspace)
 
 
 @onboard_app.command()
-def setup():
+def setup(
+    config: str = None,
+    workspace: str = None,
+):
     """Initialize and configure crabclaw (interactive wizard)."""
+    # Set config path if provided
+    if config:
+        set_config_path(Path(config).expanduser().resolve())
+    
     from crabclaw.config.loader import get_config_path, save_config
     from crabclaw.config.schema import Config
     from crabclaw.i18n.translator import get_supported_languages
     from crabclaw.utils.helpers import get_workspace_path
 
-    config_path = get_config_path()
+    config_file_path = get_config_path()
+    print(f"DEBUG: config_file_path = {config_file_path}")
 
     # Load existing config or create new one in memory
-    if config_path.exists():
-        console.print(f"[yellow]{translate('cli.onboard.config_exists', path=config_path)}[/yellow]")
+    if config_file_path.exists():
+        console.print(f"[yellow]{translate('cli.onboard.config_exists', path=config_file_path)}[/yellow]")
         if typer.confirm(translate("cli.onboard.reconfigure_confirm")):
-            config = Config()
+            cfg = Config()
         else:
             console.print(translate("cli.config.exit_config"))
             return
     else:
-        config = Config()
+        cfg = Config()
 
     # Step 1: Select Language
     total_steps = 10
@@ -320,7 +337,7 @@ def setup():
 
     selected_language = _ask_choice(translate("cli.config.select_language"), language_display, 0)
     language_key = languages[language_display.index(selected_language)]
-    config.language = language_key
+    cfg.language = language_key
 
     # Update current session language
     set_language(language_key)
@@ -396,7 +413,7 @@ def setup():
             # Configure proxy (optional)
             proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
             if proxy:
-                config.tools.web.proxy = proxy
+                cfg.tools.web.proxy = proxy
 
     # Step 6: Configure Web Search (optional)
     _print_step(6, total_steps, translate("cli.config.step_5_title"))
@@ -407,10 +424,10 @@ def setup():
         console.print(translate("cli.config.brave_api_key_hint"))
         brave_api_key = _ask_text(translate("cli.config.enter_brave_api_key"), default="")
         if brave_api_key:
-            config.tools.web.search.api_key = brave_api_key
+            cfg.tools.web.search.api_key = brave_api_key
         proxy = _ask_text(translate("cli.config.enter_proxy"), default="")
         if proxy:
-            config.tools.web.proxy = proxy
+            cfg.tools.web.proxy = proxy
 
     # Step 7: Configure MCP Servers (optional)
     _print_step(7, total_steps, translate("cli.config.step_6_title"))
@@ -453,8 +470,8 @@ def setup():
 
     if mcp_servers_config:
         from crabclaw.config.schema import MCPServerConfig
-        for name, cfg in mcp_servers_config.items():
-            config.tools.mcp_servers[name] = MCPServerConfig(**cfg)
+        for name, server_config in mcp_servers_config.items():
+            cfg.tools.mcp_servers[name] = MCPServerConfig(**server_config)
 
     # Step 8: Configure Gateway (optional)
     _print_step(8, total_steps, translate("cli.config.step_7_title"))
@@ -465,13 +482,13 @@ def setup():
         console.print("\n" + translate("cli.config.gateway_port_hint"))
         gateway_port = _ask_text(translate("cli.config.enter_gateway_port"), default="18790")
         if gateway_port.isdigit():
-            config.gateway.port = int(gateway_port)
+            cfg.gateway.port = int(gateway_port)
 
         enable_heartbeat = typer.confirm(translate("cli.config.enable_heartbeat"), default=True)
         if enable_heartbeat:
             heartbeat_interval = _ask_text(translate("cli.config.enter_heartbeat_interval"), default="1800")
             if heartbeat_interval.isdigit():
-                config.gateway.heartbeat.interval_s = int(heartbeat_interval)
+                cfg.gateway.heartbeat.interval_s = int(heartbeat_interval)
 
     # Step 9: Configure Dashboard (optional)
     _print_step(9, total_steps, translate("cli.config.step_8_title"))
@@ -482,7 +499,7 @@ def setup():
         console.print("\n" + translate("cli.config.dashboard_port_hint"))
         dashboard_port = _ask_text(translate("cli.config.enter_dashboard_port"), default="18791")
         if dashboard_port.isdigit():
-            config.dashboard.http_port = int(dashboard_port)
+            cfg.dashboard.http_port = int(dashboard_port)
 
     # Step 10: Configure Channels (optional)
     _print_step(10, total_steps, translate("cli.onboard.channels_step"))
@@ -518,8 +535,8 @@ def setup():
         enable_whatsapp = typer.confirm(translate("cli.onboard.enable_whatsapp"), default=False)
         if enable_whatsapp:
             wa_bridge_url = _ask_text(translate("cli.onboard.enter_whatsapp_bridge_url"), default="ws://localhost:3001")
-            config.channels.whatsapp.enabled = True
-            config.channels.whatsapp.bridge_url = wa_bridge_url
+            cfg.channels.whatsapp.enabled = True
+            cfg.channels.whatsapp.bridge_url = wa_bridge_url
 
         # Feishu
         enable_feishu = typer.confirm(translate("cli.onboard.enable_feishu"), default=False)
@@ -527,9 +544,9 @@ def setup():
             fs_app_id = _ask_text(translate("cli.onboard.enter_feishu_app_id"), default="")
             fs_app_secret = _ask_text(translate("cli.onboard.enter_feishu_app_secret"), default="")
             if fs_app_id and fs_app_secret:
-                config.channels.feishu.enabled = True
-                config.channels.feishu.app_id = fs_app_id
-                config.channels.feishu.app_secret = fs_app_secret
+                cfg.channels.feishu.enabled = True
+                cfg.channels.feishu.app_id = fs_app_id
+                cfg.channels.feishu.app_secret = fs_app_secret
 
         # DingTalk
         enable_dingtalk = typer.confirm(translate("cli.onboard.enable_dingtalk"), default=False)
@@ -537,9 +554,9 @@ def setup():
             dt_client_id = _ask_text(translate("cli.onboard.enter_dingtalk_client_id"), default="")
             dt_client_secret = _ask_text(translate("cli.onboard.enter_dingtalk_client_secret"), default="")
             if dt_client_id and dt_client_secret:
-                config.channels.dingtalk.enabled = True
-                config.channels.dingtalk.client_id = dt_client_id
-                config.channels.dingtalk.client_secret = dt_client_secret
+                cfg.channels.dingtalk.enabled = True
+                cfg.channels.dingtalk.client_id = dt_client_id
+                cfg.channels.dingtalk.client_secret = dt_client_secret
 
         # Email
         enable_email = typer.confirm(translate("cli.onboard.enable_email"), default=False)
@@ -549,20 +566,20 @@ def setup():
             imap_pass = _ask_password(translate("cli.onboard.enter_imap_password"))
             smtp_host = _ask_text(translate("cli.onboard.enter_smtp_host"), default="")
             if imap_host and imap_user:
-                config.channels.email.enabled = True
-                config.channels.email.imap_host = imap_host
-                config.channels.email.imap_username = imap_user
-                config.channels.email.imap_password = imap_pass
+                cfg.channels.email.enabled = True
+                cfg.channels.email.imap_host = imap_host
+                cfg.channels.email.imap_username = imap_user
+                cfg.channels.email.imap_password = imap_pass
                 if smtp_host:
-                    config.channels.email.smtp_host = smtp_host
+                    cfg.channels.email.smtp_host = smtp_host
 
     # Apply all configurations to config object (in memory)
     # Use getattr to get provider config and set api key
-    provider_config = getattr(config.providers, provider_key, None)
+    provider_config = getattr(cfg.providers, provider_key, None)
     if provider_config is None:
         from crabclaw.config.schema import ProviderConfig
         provider_config = ProviderConfig()
-        setattr(config.providers, provider_key, provider_config)
+        setattr(cfg.providers, provider_key, provider_config)
 
     provider_config.api_key = api_key
 
@@ -570,22 +587,22 @@ def setup():
         provider_config.api_base = base_url
 
     # Set default model
-    if not config.agents:
+    if not cfg.agents:
         from crabclaw.config.schema import AgentsConfig
-        config.agents = AgentsConfig()
-    if not config.agents.defaults:
+        cfg.agents = AgentsConfig()
+    if not cfg.agents.defaults:
         from crabclaw.config.schema import AgentDefaultsConfig
-        config.agents.defaults = AgentDefaultsConfig()
+        cfg.agents.defaults = AgentDefaultsConfig()
 
-    config.agents.defaults.model = selected_model
-    config.agents.defaults.provider = provider_key
+    cfg.agents.defaults.model = selected_model
+    cfg.agents.defaults.provider = provider_key
 
     if enable_exec:
         from crabclaw.config.schema import ExecToolConfig
-        config.tools.exec = ExecToolConfig()
-        config.tools.exec.timeout = 60
-        config.tools.exec.path_append = ""
-        config.tools.restrict_to_workspace = restrict_workspace
+        cfg.tools.exec = ExecToolConfig()
+        cfg.tools.exec.timeout = 60
+        cfg.tools.exec.path_append = ""
+        cfg.tools.restrict_to_workspace = restrict_workspace
 
     # Final Step: Save and Initialize
     console.print(f"\n{translate('cli.onboard.final_step')}")
@@ -602,8 +619,8 @@ def setup():
 
     if typer.confirm(f"\n{translate('cli.onboard.save_confirm')}", default=True):
         # Save config to file
-        save_config(config)
-        console.print(f"[green]✓[/green] {translate('cli.config.config_saved', path=config_path)}")
+        save_config(cfg)
+        console.print(f"[green]✓[/green] {translate('cli.config.config_saved', path=config_file_path)}")
 
         # Create workspace
         workspace = get_workspace_path()
@@ -622,6 +639,22 @@ def setup():
         console.print(f"\n[dim]{translate('cli.onboard.chat_apps')}[/dim]")
     else:
         console.print(translate("cli.onboard.cancelled"))
+
+
+@onboard_app.command()
+def init(
+    config: str = typer.Option(None, "--config", "-c", help="Path to config file (for multi-instance support)"),
+    workspace: str = typer.Option(None, "--workspace", "-w", help="Workspace directory (overrides config)"),
+):
+    """Initialize and configure crabclaw (interactive wizard)."""
+    # Set config path if provided
+    if config:
+        config_path = Path(config).expanduser().resolve()
+        print(f"DEBUG: Setting config path to {config_path}")
+        set_config_path(config_path)
+    
+    # Alias for setup command
+    setup(workspace=workspace)
 
 
 # ============================================================================

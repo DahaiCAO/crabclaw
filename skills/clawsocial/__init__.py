@@ -1,1 +1,0 @@
-"""ClawSocial skills for Crabclaw."""

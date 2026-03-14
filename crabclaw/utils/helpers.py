@@ -17,8 +17,9 @@ def get_data_path() -> Path:
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
-    """Resolve and ensure workspace path. Defaults to ~/.crabclaw/workspace."""
-    path = Path(workspace).expanduser() if workspace else Path.home() / ".crabclaw" / "workspace"
+    """Resolve and ensure workspace path. Defaults to config directory / workspace."""
+    from crabclaw.config.secure_loader import get_data_dir
+    path = Path(workspace).expanduser() if workspace else get_data_dir() / "workspace"
     return ensure_dir(path)
 
 
@@ -67,6 +68,8 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
     _write(None, workspace / "memory" / "HISTORY.md")
     (workspace / "skills").mkdir(exist_ok=True)
+    (workspace / "cron").mkdir(exist_ok=True)
+    (workspace / "history").mkdir(exist_ok=True)
 
     if added and not silent:
         from rich.console import Console

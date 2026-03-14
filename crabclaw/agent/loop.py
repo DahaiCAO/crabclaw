@@ -95,7 +95,10 @@ class AgentLoop:
         self.audit_logger = audit_logger
         self.internal_state = internal_state
         self.prompt_manager = prompt_manager
-        self.skill_manager = skill_manager
+        
+        # Initialize skill manager
+        from crabclaw.agent.skill_discovery import SkillManager
+        self.skill_manager = skill_manager or SkillManager(workspace, Path(__file__).parent.parent / "skills")
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -145,10 +148,19 @@ class AgentLoop:
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         
+        # Register ClawSocial tools
+        try:
+            from crabclaw.skills.clawsocial.manager import register_clawsocial_tools
+            register_clawsocial_tools(self.tools)
+        except ImportError as e:
+            logger.warning("Failed to register ClawSocial tools: %s", e)
+        
         # Register internal tools
         if self.skill_manager:
-            from crabclaw.agent.tools.internal import ReloadSkillsTool
+            from crabclaw.agent.tools.internal import ReloadSkillsTool, SearchSkillsTool, DownloadSkillTool
             self.tools.register(ReloadSkillsTool(self.skill_manager))
+            self.tools.register(SearchSkillsTool(self.skill_manager))
+            self.tools.register(DownloadSkillTool(self.skill_manager))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
