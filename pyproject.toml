@@ -1,7 +1,7 @@
 [project]
 name = "crabclaw-ai"
 version = "0.1.4.post3"
-description = "A lightweight personal AI assistant framework"
+description = "A human-like multi-channel agent operating system"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
@@ -44,6 +44,11 @@ dependencies = [
     "json-repair>=0.57.0,<1.0.0",
     "openai>=2.8.0",
     "watchdog>=3.0.0",
+    "bcrypt>=4.3.0,<5.0.0",
+    "requests>=2.32.0,<3.0.0",
+    "PyJWT>=2.10.0,<3.0.0",
+    "wecom-aibot-sdk>=0.1.8,<1.0.0",
+    "clawlink>=0.1.6,<1.0.0",
 ]
 
 [project.optional-dependencies]

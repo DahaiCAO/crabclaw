@@ -10,14 +10,18 @@
     <header class="topbar">
       <div class="brand">
         <div class="title">🦀 Crabclaw Dashboard</div>
-        <div class="subtitle">AI Assistant Control Panel</div>
+        <div class="subtitle" data-i18n="menu.subtitle">AI Assistant Control Panel</div>
       </div>
       <div class="status">
-        <div class="pill" id="conn-pill">WS: connecting…</div>
+        <div class="pill" id="conn-pill" data-i18n="menu.ws_connecting">WS: connecting...</div>
         <div class="pill" id="ws-url-pill"></div>
+        <button id="user-menu-button">
+          <span>👤</span>
+          <span id="user-menu-label">Login</span>
+        </button>
         <div class="theme-switch">
-          <button class="theme-btn active" data-theme="dark" title="Dark Mode">🌙</button>
-          <button class="theme-btn" data-theme="light" title="Light Mode">☀️</button>
+          <button class="theme-btn active" data-theme="dark" title="Dark Mode" data-i18n="settings.dark">🌙</button>
+          <button class="theme-btn" data-theme="light" title="Light Mode" data-i18n="settings.light">☀️</button>
         </div>
       </div>
     </header>
@@ -25,38 +29,91 @@
     <div class="layout">
       <aside class="sidebar">
         <nav class="menu">
-          <div class="menu-item active" data-section="chat">
+          <div class="menu-item active" data-section="chat" data-access="user">
             <span class="menu-icon">💬</span>
-            <span class="menu-text">Chat Interface</span>
+            <span class="menu-text" data-i18n="menu.chat">Chat with me</span>
           </div>
-          <div class="menu-item" data-section="state">
-            <span class="menu-icon">📊</span>
-            <span class="menu-text">Internal State</span>
+          
+          <div class="menu-group">
+            <div class="menu-group-header" id="private-chat-header">
+              <span class="menu-icon">👥</span>
+              <span class="menu-text" data-i18n="menu.private_chat">Private Chat</span>
+              <span class="menu-arrow">▼</span>
+            </div>
+            <div class="menu-group-content" id="private-chat-list">
+              <div class="menu-item friend-item" data-section="friend-chat" data-friend-id="" data-access="user">
+                <span class="friend-name" data-i18n="menu.loading">Loading...</span>
+                <span class="badge" style="display: none;">0</span>
+              </div>
+            </div>
           </div>
-          <div class="menu-item" data-section="audit">
+          
+          <div class="menu-group">
+            <div class="menu-group-header" id="group-chat-header">
+              <span class="menu-icon">👨‍👩‍👧‍👦</span>
+              <span class="menu-text" data-i18n="menu.group_chat">Group Chat</span>
+              <span class="menu-arrow">▼</span>
+            </div>
+            <div class="menu-group-content" id="group-chat-list">
+              <div class="menu-item group-item" data-section="group-chat" data-group-id="" data-access="user">
+                <span class="group-name" data-i18n="menu.loading">Loading...</span>
+                <span class="badge" style="display: none;">0</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="menu-item" data-section="portrait" data-access="user">
+            <span class="menu-icon">👤</span>
+            <span class="menu-text" data-i18n="menu.portrait">Portrait</span>
+          </div>
+          <div class="menu-item" data-section="overview" data-access="user">
+            <span class="menu-icon">🧭</span>
+            <span class="menu-text" data-i18n="menu.overview">Overview</span>
+          </div>
+          <div class="menu-item" data-section="channels" data-access="member">
+            <span class="menu-icon">📢</span>
+            <span class="menu-text" data-i18n="menu.channels">Channels</span>
+          </div>
+          <div class="menu-item" data-section="prompt-evolution" data-access="admin">
+            <span class="menu-icon">🧬</span>
+            <span class="menu-text" data-i18n="menu.prompt_evolution">Prompt Evolution</span>
+          </div>
+          <div class="menu-item" data-section="audit" data-access="admin">
             <span class="menu-icon">📋</span>
-            <span class="menu-text">Audit Log</span>
+            <span class="menu-text" data-i18n="menu.audit">Audit Log</span>
           </div>
-          <div class="menu-item" data-section="core-files">
+          <div class="menu-item" data-section="core-files" data-access="admin">
             <span class="menu-icon">📁</span>
-            <span class="menu-text">Core Files</span>
+            <span class="menu-text" data-i18n="menu.core_files">Core Files</span>
           </div>
-          <div class="menu-item" data-section="reflection">
+          <div class="menu-item" data-section="reflection" data-access="admin">
             <span class="menu-icon">🧠</span>
-            <span class="menu-text">Reflection</span>
+            <span class="menu-text" data-i18n="menu.reflection">Reflection</span>
           </div>
           <div class="menu-divider"></div>
-          <div class="menu-item" data-section="settings">
+          <div class="menu-item" data-section="settings" data-access="admin">
             <span class="menu-icon">⚙️</span>
-            <span class="menu-text">Settings</span>
+            <span class="menu-text" data-i18n="menu.settings">Settings</span>
           </div>
-          <div class="menu-item" data-section="providers">
+          <div class="menu-item" data-section="providers" data-access="admin">
             <span class="menu-icon">🔌</span>
-            <span class="menu-text">Providers</span>
+            <span class="menu-text" data-i18n="menu.providers">Providers</span>
           </div>
-          <div class="menu-item" data-section="config">
+          <div class="menu-item" data-section="skills" data-access="admin">
+            <span class="menu-icon">🛠️</span>
+            <span class="menu-text" data-i18n="menu.skills">Skills</span>
+          </div>
+          <div class="menu-item" data-section="channels" data-access="admin">
+            <span class="menu-icon">📢</span>
+            <span class="menu-text">频道</span>
+          </div>
+          <div class="menu-item" data-section="config" data-access="admin">
             <span class="menu-icon">📝</span>
-            <span class="menu-text">Configuration</span>
+            <span class="menu-text" data-i18n="menu.config">Configuration</span>
+          </div>
+          <div class="menu-item" data-section="users" data-access="admin">
+            <span class="menu-icon">👥</span>
+            <span class="menu-text">User Management</span>
           </div>
         </nav>
       </aside>
@@ -64,30 +121,359 @@
       <main class="content">
         <section class="content-section active" id="section-chat">
           <div class="card">
-            <div class="card-title">Chat Interface（AI 聊天）</div>
+            <div class="chat-header">
+              <span class="chat-header-title" data-i18n="menu.chat">Chat with me</span>
+              <span class="chat-header-status" data-i18n="menu.chat_status">AI Chat</span>
+            </div>
             <div class="chat-container">
               <div class="chat-messages" id="chat-messages"></div>
               <div class="chat-input">
-                <input type="text" id="chat-input" placeholder="Type your message..." />
-                <button id="send-button">Send</button>
+                <input type="text" id="chat-input" data-i18n="menu.chat_placeholder" placeholder="Type your message..." />
+                <button id="send-button" data-i18n="menu.send">Send</button>
               </div>
             </div>
           </div>
         </section>
 
-        <section class="content-section" id="section-state">
+        <section class="content-section" id="section-portrait">
+          <div class="portrait-container">
+            <!-- Profile Section -->
+            <div class="card profile-card">
+              <div class="card-title" data-i18n="portrait.basic">Basic Profile</div>
+              <div class="profile-grid">
+                <div class="form-group">
+                  <label data-i18n="portrait.id">Agent ID</label>
+                  <input type="text" id="pt-id" readonly />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.name">Name</label>
+                  <input type="text" id="pt-name" placeholder="Crabclaw-001" />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.nickname">Nickname</label>
+                  <input type="text" id="pt-nickname" placeholder="e.g. Claw" />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.age">Age</label>
+                  <input type="number" id="pt-age" />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.gender">Gender</label>
+                  <select id="pt-gender">
+                    <option value="non-binary" data-i18n="genders.non_binary">Non-binary</option>
+                    <option value="male" data-i18n="genders.male">Male</option>
+                    <option value="female" data-i18n="genders.female">Female</option>
+                    <option value="unknown" data-i18n="genders.unknown">Unknown</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.height">Height (cm)</label>
+                  <input type="number" id="pt-height" />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.weight">Weight (kg)</label>
+                  <input type="number" id="pt-weight" />
+                </div>
+                <div class="form-group">
+                  <label data-i18n="portrait.hobbies">Hobbies</label>
+                  <textarea id="pt-hobbies" rows="2"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- Psychology & Emotion -->
+            <div class="card">
+              <div class="card-title" data-i18n="portrait.psychology">Psychology & Emotion</div>
+              <div class="stat-grid">
+                <div class="stat-row">
+                  <label data-i18n="portrait.curiosity">Curiosity</label>
+                  <div class="slider-row">
+                    <span class="slider-min">0</span>
+                    <input type="range" id="pt-curiosity" min="0" max="1" step="0.01" />
+                    <span class="slider-max">1</span>
+                    <span class="stat-val" id="pt-curiosity-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.confidence">Confidence</label>
+                  <div class="slider-row">
+                    <span class="slider-min">0</span>
+                    <input type="range" id="pt-confidence" min="0" max="1" step="0.01" />
+                    <span class="slider-max">1</span>
+                    <span class="stat-val" id="pt-confidence-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.risk_aversion">Risk Aversion</label>
+                  <div class="slider-row">
+                    <span class="slider-min">0</span>
+                    <input type="range" id="pt-risk-aversion" min="0" max="1" step="0.01" />
+                    <span class="slider-max">1</span>
+                    <span class="stat-val" id="pt-risk-aversion-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.social_trust">Social Trust</label>
+                  <div class="slider-row">
+                    <span class="slider-min">0</span>
+                    <input type="range" id="pt-social-trust" min="0" max="1" step="0.01" />
+                    <span class="slider-max">1</span>
+                    <span class="stat-val" id="pt-social-trust-val">0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Needs & Motivation -->
+            <div class="card">
+              <div class="card-title" data-i18n="portrait.needs">Needs & Motivation</div>
+              <div class="stat-grid">
+                <div class="stat-row">
+                  <label data-i18n="portrait.energy">Energy</label>
+                  <div class="progress-row">
+                    <span class="progress-min">0</span>
+                    <div class="progress-bar"><div id="pt-need-energy" class="progress-fill bg-ok"></div></div>
+                    <span class="progress-max">1</span>
+                    <span class="stat-val" id="pt-need-energy-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.social">Social</label>
+                  <div class="progress-row">
+                    <span class="progress-min">0</span>
+                    <div class="progress-bar"><div id="pt-need-social" class="progress-fill bg-accent"></div></div>
+                    <span class="progress-max">1</span>
+                    <span class="stat-val" id="pt-need-social-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.achievement">Achievement</label>
+                  <div class="progress-row">
+                    <span class="progress-min">0</span>
+                    <div class="progress-bar"><div id="pt-need-achievement" class="progress-fill bg-ok"></div></div>
+                    <span class="progress-max">1</span>
+                    <span class="stat-val" id="pt-need-achievement-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.curiosity">Curiosity</label>
+                  <div class="progress-row">
+                    <span class="progress-min">0</span>
+                    <div class="progress-bar"><div id="pt-need-curiosity" class="progress-fill bg-accent"></div></div>
+                    <span class="progress-max">1</span>
+                    <span class="stat-val" id="pt-need-curiosity-val">0</span>
+                  </div>
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.safety">Safety</label>
+                  <div class="progress-row">
+                    <span class="progress-min">0</span>
+                    <div class="progress-bar"><div id="pt-need-safety" class="progress-fill bg-bad"></div></div>
+                    <span class="progress-max">1</span>
+                    <span class="stat-val" id="pt-need-safety-val">0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sociology & Mind -->
+            <div class="card">
+              <div class="card-title" data-i18n="portrait.sociology">Sociology & Social Mind</div>
+              <div class="stat-grid">
+                <div class="stat-row">
+                  <label data-i18n="portrait.interactions">Interactions</label>
+                  <input type="number" id="pt-social-ticks" readonly />
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.credits">Credits</label>
+                  <input type="text" id="pt-credits" readonly />
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.partners">Partners</label>
+                  <input type="number" id="pt-partners-count" readonly />
+                </div>
+                <div class="stat-row">
+                  <label data-i18n="portrait.online">Online Mode</label>
+                  <label class="switch">
+                    <input type="checkbox" id="pt-online-mode" checked>
+                    <span class="slider-round"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Self Model -->
+            <div class="card">
+              <div class="card-title" data-i18n="portrait.self_model">Self Model</div>
+              <div class="skills-container" id="pt-skills">
+                <!-- Skills will be rendered here -->
+              </div>
+            </div>
+
+            <!-- Physiology -->
+            <div class="card">
+              <div class="card-title" data-i18n="portrait.physiology">Physiology</div>
+              <div class="physiology-grid">
+                <div class="phys-item">
+                  <div class="phys-label" data-i18n="portrait.health">Health</div>
+                  <div class="phys-value" id="pt-phys-health">0%</div>
+                </div>
+                <div class="phys-item">
+                  <div class="phys-label" data-i18n="portrait.satiety">Satiety</div>
+                  <div class="phys-value" id="pt-phys-satiety">0%</div>
+                </div>
+                <div class="phys-item">
+                  <div class="phys-label" data-i18n="portrait.plasticity">Plasticity</div>
+                  <div class="phys-value" id="pt-phys-plasticity">0%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-overview">
           <div class="card">
-            <div class="card-title">Internal State（实时快照）</div>
-            <pre class="pre" id="state-pre">{}</pre>
+            <div class="card-title" data-i18n="menu.overview">Overview</div>
+            <div class="overview-grid">
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="overview.agent_alive">Agent Alive</div>
+                <div class="metric-value" id="ov-agent-alive">unknown</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="portrait.energy">Energy</div>
+                <div class="metric-value" id="ov-energy">-</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="portrait.credits">Credits</div>
+                <div class="metric-value" id="ov-credits">-</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="overview.canary">Canary Candidates</div>
+                <div class="metric-value" id="ov-canary">0</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="overview.candidates">Prompt Candidates</div>
+                <div class="metric-value" id="ov-candidates">0</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label" data-i18n="overview.last_decision">Last Auto Decision</div>
+                <div class="metric-value" id="ov-last-decision">-</div>
+              </div>
+            </div>
+            <div class="overview-focus">
+              <div class="card-title" data-i18n="overview.focus">Current Focus</div>
+              <pre class="pre compact" id="ov-focus">[]</pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-prompt-evolution">
+          <div class="card">
+            <div class="card-title" data-i18n="prompt_evolution.title">Prompt Evolution</div>
+            <div class="toolbar">
+              <div class="left">
+                <button id="pe-refresh" data-i18n="prompt_evolution.refresh">Refresh Status</button>
+                <button id="pe-auto-decide">Auto Decide</button>
+              </div>
+              <div class="right">
+                <label class="chk">candidate:
+                  <input id="pe-candidate-id" placeholder="candidate id" />
+                </label>
+                <label class="chk">file:
+                  <input id="pe-file-rel" placeholder="social/SOCIETY.md" />
+                </label>
+              </div>
+            </div>
+            <div class="overview-grid">
+              <div class="metric-card">
+                <div class="metric-label">Candidates</div>
+                <div class="metric-value" id="pe-candidate-count">0</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Deployments</div>
+                <div class="metric-value" id="pe-deployment-count">0</div>
+              </div>
+            </div>
+            <div class="pe-grid">
+              <div>
+                <div class="card-title">Deployments</div>
+                <pre class="pre compact" id="pe-deployments"></pre>
+              </div>
+              <div>
+                <div class="card-title">Candidates</div>
+                <pre class="pre compact" id="pe-candidates"></pre>
+              </div>
+            </div>
+            <div class="pe-actions">
+              <button id="pe-promote">Promote</button>
+              <button id="pe-rollback">Rollback</button>
+              <button id="pe-factory-reset">Factory Reset</button>
+            </div>
+            <div class="card-title">Online Metrics Curves</div>
+            <div id="pe-charts"></div>
+            <div class="card-title">Alerts</div>
+            <div id="pe-alerts" class="log compact-log"></div>
+            <div class="card-title">Alert Rules</div>
+            <div class="overview-grid">
+              <div class="metric-card">
+                <div class="metric-label">Low Sample Canary</div>
+                <input id="pe-rule-low-sample" />
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Warning Error Rate</div>
+                <input id="pe-rule-warning-error" />
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Critical Error Rate</div>
+                <input id="pe-rule-critical-error" />
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">High Avg Turns</div>
+                <input id="pe-rule-high-turns" />
+              </div>
+            </div>
+            <div class="pe-actions">
+              <button id="pe-apply-rules">Apply Alert Rules</button>
+            </div>
+            <div class="card-title">Decision Timeline</div>
+            <div id="pe-timeline" class="log compact-log"></div>
+            <div class="card-title">Candidate Compare (A/B by file)</div>
+            <div class="toolbar">
+              <div class="left">
+                <label class="chk">sort:
+                  <select id="pe-compare-sort">
+                    <option value="online_score">online_score</option>
+                    <option value="tool_success_rate">tool_success_rate</option>
+                    <option value="error_rate">error_rate</option>
+                    <option value="avg_turns">avg_turns</option>
+                    <option value="samples">samples</option>
+                  </select>
+                </label>
+                <label class="chk">order:
+                  <select id="pe-compare-order">
+                    <option value="desc">desc</option>
+                    <option value="asc">asc</option>
+                  </select>
+                </label>
+                <label class="chk">min samples:
+                  <input id="pe-compare-min-samples" value="0" />
+                </label>
+              </div>
+              <div class="right">
+                <input id="pe-compare-search" placeholder="filter by file/candidate..." />
+              </div>
+            </div>
+            <div id="pe-compare-table"></div>
+            <pre class="pre compact" id="pe-compare" data-i18n="prompt_evolution.loading">Loading evolution data...</pre>
           </div>
         </section>
 
         <section class="content-section" id="section-audit">
           <div class="card">
-            <div class="card-title">Audit Log（实时事件流）</div>
+            <div class="card-title" data-i18n="audit.title">Audit Log</div>
             <div class="toolbar">
               <div class="left">
-                <button id="clear-audit">清空</button>
+                <button id="clear-audit" data-i18n="audit.clear">Clear</button>
                 <label class="chk">
                   <input type="checkbox" id="show-audit" checked />
                   audit
@@ -98,20 +484,31 @@
                 </label>
               </div>
               <div class="right">
-                <input id="search" placeholder="搜索（匹配 JSON 文本）…" />
+                <input id="search" data-i18n="audit.search_placeholder" placeholder="Search..." />
                 <label class="chk">
                   <input type="checkbox" id="auto-scroll" checked />
-                  自动滚动
+                  <span data-i18n="audit.auto_scroll">Auto-scroll</span>
                 </label>
               </div>
             </div>
+            <div class="llm-stats-toolbar">
+              <div class="left">
+                <span class="muted">LLM Stats</span>
+                <select id="llm-stats-window">
+                  <option value="3600">最近 1h</option>
+                  <option value="86400">最近 24h</option>
+                  <option value="0">全部</option>
+                </select>
+              </div>
+            </div>
+            <div class="llm-stats" id="llm-stats"></div>
             <div class="log" id="audit-log"></div>
           </div>
         </section>
 
         <section class="content-section" id="section-core-files">
           <div class="card">
-            <div class="card-title">Core Files（核心文件）</div>
+            <div class="card-title" data-i18n="core_files.title">Core Files</div>
             <div class="core-files-container">
               <div class="core-files-sidebar">
                 <div class="core-files-header">
@@ -123,13 +520,16 @@
               </div>
               <div class="core-files-editor">
                 <div class="core-files-editor-header">
-                  <h3 id="current-file-name">Select a file</h3>
+                  <div class="core-file-info">
+                    <h3 id="current-file-name" data-i18n="core_files.select_file">Select a file</h3>
+                    <div id="current-file-path" class="core-file-path"></div>
+                  </div>
                   <div class="core-files-editor-actions">
-                    <button id="save-file-btn" class="btn">Save</button>
+                    <button id="save-file-btn" class="btn" data-i18n="core_files.save">Save</button>
                   </div>
                 </div>
                 <div class="core-files-editor-content">
-                  <textarea id="file-content" placeholder="File content will be displayed here..."></textarea>
+                  <textarea id="file-content" data-i18n="core_files.content_placeholder" placeholder="File content..."></textarea>
                 </div>
               </div>
             </div>
@@ -138,66 +538,84 @@
 
         <section class="content-section" id="section-reflection">
           <div class="card">
-            <div class="card-title">Reflection（反思/自我优化事件）</div>
+            <div class="card-title" data-i18n="menu.reflection">Reflection</div>
             <div class="log" id="refl-log"></div>
           </div>
         </section>
 
         <section class="content-section" id="section-settings">
-          <div class="card">
-            <div class="card-title">Settings（设置）</div>
-            <div class="settings-content">
-              <div class="setting-group">
-                <h3>Appearance / 外观</h3>
-                <div class="setting-row">
-                  <span>Theme / 主题:</span>
-                  <div class="theme-toggle">
-                    <button class="theme-btn active" data-theme="dark" title="Dark Mode">
-                      🌙 Dark
-                    </button>
-                    <button class="theme-btn" data-theme="light" title="Light Mode">
-                      ☀️ Light
-                    </button>
+          <div class="card settings-card">
+            <div class="card-title" data-i18n="settings.title">Settings</div>
+            <div class="settings-container">
+              <!-- General Settings -->
+              <div class="settings-group">
+                <h3 data-i18n="settings.general">General</h3>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label data-i18n="settings.language">Language</label>
+                    <div class="radio-group">
+                      <label class="radio-item">
+                        <input type="radio" name="language" value="en" />
+                        <span>English</span>
+                      </label>
+                      <label class="radio-item">
+                        <input type="radio" name="language" value="zh" />
+                        <span>简体中文</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="settings.theme">Appearance</label>
+                    <div class="theme-toggle">
+                      <button class="theme-btn" data-theme="dark" title="Dark Mode" data-i18n="settings.dark">🌙 Dark</button>
+                      <button class="theme-btn" data-theme="light" title="Light Mode" data-i18n="settings.light">☀️ Light</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="setting-group">
-                <h3>Language / 语言</h3>
-                <div class="setting-row">
-                  <label>
-                    <input type="radio" name="language" value="en" checked />
-                    English
-                  </label>
-                  <label>
-                    <input type="radio" name="language" value="zh" />
-                    中文
-                  </label>
+
+              <!-- System Configuration -->
+              <div class="settings-group">
+                <h3 data-i18n="settings.system">System</h3>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label data-i18n="settings.save_interval">Save Interval (s)</label>
+                    <input type="number" id="set-save-interval" min="1" step="1" />
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="settings.state_push_interval">State Push (s)</label>
+                    <input type="number" id="set-push-interval" min="0.2" step="0.1" />
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="settings.audit_log">Audit Log</label>
+                    <label class="switch">
+                      <input type="checkbox" id="set-audit-enabled" />
+                      <span class="slider-round"></span>
+                    </label>
+                  </div>
                 </div>
               </div>
-              <div class="setting-group">
-                <h3>Display / 显示</h3>
-                <div class="setting-row">
-                  <label>
-                    <input type="checkbox" id="setting-auto-scroll" checked />
-                    Auto Scroll / 自动滚动
-                  </label>
-                </div>
-                <div class="setting-row">
-                  <label>
-                    <input type="checkbox" id="setting-show-timestamp" checked />
-                    Show Timestamp / 显示时间戳
-                  </label>
+
+              <!-- Connection Information -->
+              <div class="settings-group">
+                <h3 data-i18n="settings.connection">Connection</h3>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label data-i18n="settings.connection">WebSocket URL</label>
+                    <code id="ws-url-display">ws://127.0.0.1:18792/ws</code>
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="settings.connection">HTTP URL</label>
+                    <code id="http-url-display">http://127.0.0.1:18791/</code>
+                  </div>
                 </div>
               </div>
-              <div class="setting-group">
-                <h3>Connection / 连接</h3>
-                <div class="setting-row">
-                  <span>WebSocket URL:</span>
-                  <code id="ws-url-display">Loading...</code>
-                </div>
-                <div class="setting-row">
-                  <span>HTTP URL:</span>
-                  <code id="http-url-display">Loading...</code>
+
+              <!-- LLM Routing -->
+              <div class="settings-group">
+                <h3>大模型调用点路由</h3>
+                <div id="llm-routing-list">
+                  <!-- Generated dynamically -->
                 </div>
               </div>
             </div>
@@ -206,11 +624,11 @@
 
         <section class="content-section" id="section-providers">
           <div class="card">
-            <div class="card-title">Providers（LLM 提供商状态）</div>
+            <div class="card-title" data-i18n="menu.providers">Providers</div>
             <div class="providers-content" id="providers-list">
               <div class="provider-item">
                 <span class="provider-status loading"></span>
-                <span class="provider-name">Loading...</span>
+                <span class="provider-name" data-i18n="menu.loading">Loading...</span>
               </div>
             </div>
           </div>
@@ -218,11 +636,191 @@
 
         <section class="content-section" id="section-config">
           <div class="card">
-            <div class="card-title">Configuration（配置信息）</div>
-            <pre class="pre" id="config-pre">Loading...</pre>
+            <div class="card-title" data-i18n="menu.config">Configuration</div>
+            <pre class="pre" id="config-pre" data-i18n="menu.loading">Loading...</pre>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-users">
+          <div class="card">
+            <div class="card-title">User Management</div>
+            <div class="users-content" id="users-list">
+              <div class="user-item">
+                <span class="user-status loading"></span>
+                <span class="user-info" data-i18n="menu.loading">Loading...</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-skills">
+          <div class="card skills-card">
+            <div class="card-title" data-i18n="skills.title">Skills</div>
+            <div class="skills-description" data-i18n="skills.description">Manage skill availability and API key injection.</div>
+            
+            <div class="skills-filter">
+              <label data-i18n="skills.filter">Filter</label>
+              <input type="text" id="skills-filter-input" data-i18n="skills.search_placeholder" placeholder="Search skills..." />
+            </div>
+            
+            <div class="skills-container">
+              <div class="skills-section">
+                <h3 class="skills-section-title" data-i18n="skills.workspace_skills">WORKSPACE SKILLS</h3>
+                <div id="workspace-skills-list" class="skills-list">
+                  <!-- Workspace skills will be populated by JavaScript -->
+                </div>
+              </div>
+              
+              <div class="skills-section">
+                <h3 class="skills-section-title" data-i18n="skills.built_in_skills">BUILT-IN SKILLS</h3>
+                <div id="built-in-skills-list" class="skills-list">
+                  <!-- Built-in skills will be populated by JavaScript -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-channels">
+          <div class="card">
+            <div class="card-title" data-i18n="menu.channels">Channels</div>
+            <div class="channels-content" id="channels-list">
+              <div class="channel-item">
+                <span class="channel-status loading"></span>
+                <span class="channel-name" data-i18n="menu.loading">Loading...</span>
+              </div>
+            </div>
           </div>
         </section>
       </main>
+    </div>
+
+    <div id="candidate-detail-modal" class="modal hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div id="candidate-detail-title">Candidate Detail</div>
+          <div class="pe-actions">
+            <button id="candidate-detail-promote">Promote</button>
+            <button id="candidate-detail-rollback">Rollback</button>
+            <button id="candidate-detail-factory-reset">Factory Reset</button>
+            <button id="candidate-detail-jump-file">Open In Editor</button>
+            <button id="candidate-detail-close">Close</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="card-title">Summary</div>
+          <div class="toolbar">
+            <div class="left">
+              <label class="chk">reviewer:
+                <input id="candidate-reviewer" placeholder="your name" />
+              </label>
+            </div>
+            <div class="right">
+              <button id="candidate-draft-save">Save Draft</button>
+              <button id="candidate-draft-clear">Clear Draft</button>
+            </div>
+          </div>
+          <pre class="pre compact" id="candidate-detail-summary"></pre>
+          <div class="card-title">Diff</div>
+          <div class="toolbar">
+            <div class="left">
+              <button id="candidate-diff-prev-hunk">Prev Hunk</button>
+              <button id="candidate-diff-next-hunk">Next Hunk</button>
+              <select id="candidate-diff-hunk-select"></select>
+              <button id="candidate-diff-accept-hunk">Accept Hunk</button>
+              <button id="candidate-diff-reject-hunk">Reject Hunk</button>
+              <button id="candidate-diff-apply-selected">Apply Selected Hunks</button>
+            </div>
+            <div class="right">
+              <input id="candidate-diff-keyword" placeholder="highlight keyword..." />
+              <button id="candidate-diff-copy-patch">Copy Patch</button>
+              <button id="candidate-diff-copy-hunk">Copy Hunk</button>
+            </div>
+          </div>
+          <div id="candidate-diff-accept-status" class="row">
+            <div class="msg">No hunk decision yet.</div>
+          </div>
+          <pre class="pre compact" id="candidate-detail-diff"></pre>
+          <div class="card-title">Events</div>
+          <pre class="pre compact" id="candidate-detail-events"></pre>
+          <div class="card-title">Content</div>
+          <pre class="pre compact" id="candidate-detail-content"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="auth.login.title">Login</div>
+          <button class="modal-close" id="login-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="login-username" data-i18n="auth.login.username">Username</label>
+            <input type="text" id="login-username" data-i18n="auth.login.username_placeholder" placeholder="Enter your username" />
+          </div>
+          <div class="form-group">
+            <label for="login-password" data-i18n="auth.login.password">Password</label>
+            <input type="password" id="login-password" data-i18n="auth.login.password_placeholder" placeholder="Enter your password" />
+          </div>
+          <div class="modal-actions">
+            <button id="login-button" data-i18n="auth.login.button">Login</button>
+            <button id="switch-to-register" data-i18n="auth.login.create_account">Create Account</button>
+          </div>
+          <div id="login-error" class="error-message"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="register-modal" class="modal hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="auth.register.title">Create Account</div>
+          <button class="modal-close" id="register-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="register-username" data-i18n="auth.register.username">Username</label>
+            <input type="text" id="register-username" data-i18n="auth.register.username_placeholder" placeholder="Choose a username" />
+          </div>
+          <div class="form-group">
+            <label for="register-display-name" data-i18n="auth.register.display_name">Display Name</label>
+            <input type="text" id="register-display-name" data-i18n="auth.register.display_name_placeholder" placeholder="Enter your display name" />
+          </div>
+          <div class="form-group">
+            <label for="register-password" data-i18n="auth.register.password">Password</label>
+            <input type="password" id="register-password" data-i18n="auth.register.password_placeholder" placeholder="Choose a password" />
+          </div>
+          <div class="modal-actions">
+            <button id="register-button" data-i18n="auth.register.button">Register</button>
+            <button id="switch-to-login" data-i18n="auth.register.back_to_login">Back to Login</button>
+          </div>
+          <div id="register-error" class="error-message"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Menu -->
+    <div id="user-menu" class="user-menu hidden">
+      <div class="user-menu-header">
+        <div class="user-info">
+          <div class="user-avatar">👤</div>
+          <div class="user-details">
+            <div id="user-display-name">Guest</div>
+            <div id="user-username">Not logged in</div>
+          </div>
+        </div>
+        <button id="user-menu-close">&times;</button>
+      </div>
+      <div class="user-menu-body">
+        <button id="user-menu-profile" data-i18n="auth.menu.profile">Profile</button>
+        <button id="user-menu-switch-account">Switch Account</button>
+        <button id="user-menu-delete-account">Delete Account</button>
+        <button id="user-menu-logout" data-i18n="auth.menu.logout">Logout</button>
+      </div>
     </div>
 
     <script>

@@ -1,22 +1,14 @@
-# 🦀 虾兵蟹将 Crabclaw — 你的能思考的 AI 全能助手
- 
+# 🦀 Crabclaw — 类人智能多通道 Agent OS
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="Crabclaw-logo.jpg">
     <img src="Crabclaw-logo.jpg" alt="crabclaw" width="200">
   </picture>
 </p>
- 
+
 <p align="center">
   <a href="README.md"><strong>English</strong></a> | <a href="README.zh-CN.md"><strong>中文</strong></a>
-</p>
- 
-<p align="center">
-  <strong>别再堆“聊天机器人”了，开始打造你的 AI 伙伴。</strong>
-</p>
- 
-<p align="center">
-  <strong>两颗心脏，一颗大脑。</strong>
 </p>
 
 <p align="center">
@@ -27,268 +19,334 @@
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
 </p>
 
-> 🧭 **一句话：Crabclaw 不是“LLM 包装器”，它是带“内驱力”的 Agent 操作系统。**
+Crabclaw 是一个轻量但面向真实场景的 Agent 操作系统，重点能力：
+- HAOS/Sapiens 持续认知运行时，
+- 多用户隔离（用户/会话/记忆/通道配置），
+- 多通道同步与扇出（一人多端），
+- 可观测事件链路（`event_id`、`request_id`、端到端校验）。
 
-它受到 [OpenClaw](https://github.com/openclaw/openclaw) 启发。
+## TOC
 
-**crabclaw** 是一个超轻量、可扩展的个人 AI 助手框架。它以 **HABOS（Human-like Agent Behavior Operating System）** 为
-核心设计哲学：通过 **双引擎（被动 Reactive + 主动 Proactive）** 与 **内部状态（Internal State）**，让 Agent 从“被动 
-工具”升级为“有目标、有边界、会反思”的伙伴。
+- [设计演进](#设计演进旧设计--新设计)
+- [Key Features](#key-features核心能力)
+- [架构图](#架构图)
+- [Installation](#installation安装)
+- [Quick Start](#quick-start快速开始)
+- [Model Providers](#model-providers模型供应商)
+- [FAQ](#faq常见问题)
+- [故障排查](#故障排查)
+- [Docker](#docker)
 
-⚡️ **超轻量**：核心代码量约 **~4,000 行**，读得懂、改得动、扩展快。
+## 设计演进（旧设计 → 新设计）
 
-## 📢 更新速报
+| 维度 | 旧设计 | 当前设计 |
+|---|---|---|
+| 核心形态 | 请求驱动聊天循环 | HAOS + Sapiens 认知循环 |
+| 身份体系 | 通道内局部身份 | `channel + external_id -> user_id` 统一映射 |
+| 会话/记忆 | 以通道上下文为主 | `user_scope` 用户域隔离 |
+| 通道配置 | 全局静态配置 | 用户 portfolio 内独立配置 |
+| 消息模型 | 消费式响应 | 用户域发布订阅 + 多通道扇出 |
+| Dashboard 登录态 | 旧 session 路径 | JWT `access_token` + `/api/me` |
+| 同步稳定性 | 易回环/重复 | 回环保护 + 去重 + 稳定事件ID |
 
-- **2026-03-09** 🚀 Beta **v0.0.1** 上线
+## Key Features（核心能力）
 
-## 🧠 HABOS：架构 2.0（双引擎 + 行为总调度器）
+### 1) 类人认知运行时
+- 分层认知：生理、心理、社会、价值。
+- Sapiens 负责认知与决策，I/O Processor 负责感知与执行。
+- 反思与提示词演化可接入在线运行链路。
 
-我们把“Agent 应该如何像人一样行动”落成了可运行的软件架构：**双引擎并行**，由一个更高层的 **Behavior Scheduler** 统一
-调度。
+### 2) 多用户隔离
+- 用户档案：`workspace/users/*.json`
+- 用户 portfolio：`workspace/portfolios/<user_id>/...`
+- 会话与记忆均支持 `user_scope`。
+- 通道账号配置与身份映射按用户隔离。
 
-### 1) 核心：两颗心脏，同步跳动
+### 3) 多通道同步展示
+- 入站消息映射到用户域后广播。
+- 智能体回复可扇出到该用户全部映射通道。
+- 来源通道回环保护与重复消息抑制。
 
-- **🔵 被动对话引擎（Reactive Engine）**
-  - **定位**：经典 ReAct 循环
-  - **职责**：处理外部输入（用户消息 / 文件），快速响应、工具执行
-- **🔴 主动行为引擎（Proactive Engine）**
-  - **定位**：后台自主循环
-  - **职责**：由内部状态驱动（目标 / 任务 / 风险 / 画像），在“价值 > 打扰成本”时触发高价值主动行为
+### 4) 可观测与可验证
+- 事件层带 `event_id`/`request_id`。
+- Dashboard 跨端一致性校验。
+- 提供端到端验证脚本：
+  - `scripts/e2e_multichannel_sync_check.py`
 
-### 2) 六层认知栈：从“感知”到“反思”
-
-crabclaw 将 HABOS 的认知流映射到清晰的工程模块：
-
-1. **动机层（Motivation / Soul）**：Internal State（目标、任务、风险、价值观）
-2. **感知层（Perception / Nerves）**：MessageBus + TriggerSystem（外部输入与内部变化）
-3. **认知层（Cognitive / Mind）**：ContextBuilder（构建“当下局势”）
-4. **决策层（Decision / Brain）**：BehaviorScheduler + ActionSelector（权衡价值与打扰成本）
-5. **执行层（Execution / Hands）**：ToolRegistry（调用工具与外部系统）
-6. **反思层（Reflection / Conscience）**：ReflectionEngine（复盘、校准策略、写回内部状态）
+## 架构图
 
 ```mermaid
-graph TD
-    subgraph "Internal State (Motivation Layer)"
-        IS[Goals / Risks / Tasks]
-    end
+flowchart LR
+  subgraph Channels[外部通道]
+    TG[Telegram]
+    FE[Feishu]
+    EM[Email]
+    WA[WhatsApp]
+    GW[Gateway /message]
+  end
 
-    subgraph "Perception Layer"
-        MB[MessageBus] --> CB[ContextBuilder]
-        TS[TriggerSystem] --> CB
-    end
+  TG --> BUS
+  FE --> BUS
+  EM --> BUS
+  WA --> BUS
+  GW --> BUS
 
-    subgraph "Decision Layer (Behavior Scheduler)"
-        CB --> RE[Reactive Engine]
-        CB --> PE[Proactive Engine]
-        PE --> AS[Action Selector]
-    end
+  subgraph Core[核心运行时]
+    BUS[MessageBus]
+    BM[BroadcastManager 用户域 pub/sub]
+    IO[IOProcessor]
+    SAP[Sapiens Core]
+    UM[UserManager]
+  end
 
-    subgraph "Execution Layer"
-        RE --> TR[Tool Registry]
-        AS --> TR
-    end
+  BUS --> BM
+  BM --> IO
+  IO --> SAP
+  SAP --> IO
+  IO --> BUS
+  UM --> IO
+  UM --> BM
 
-    subgraph "Reflection Layer"
-        TR --> REF[Reflection Engine]
-        REF --> IS
-    end
+  subgraph UX[交互层]
+    DASH[Dashboard WS/HTTP]
+    API[/api/login /api/me /api/logout /api/delete-account]
+  end
 
-    IS --> TS
+  BM --> DASH
+  API --> DASH
 ```
 
-## ✨ 核心亮点（为什么它更像“伙伴”）
+详细文档：
+- [架构设计（中文）](docs/zh-CN/architecture.md)
+- [用户手册（中文）](docs/zh-CN/user-guide.md)
+- [开发指南（中文）](docs/zh-CN/developer-guide.md)
+- [Architecture (EN)](docs/en/architecture.md)
+- [User Guide (EN)](docs/en/user-guide.md)
+- [Developer Guide (EN)](docs/en/developer-guide.md)
+- [术语表（EN/中文）](docs/glossary.md)
 
-### 1) 双引擎智能：不止会答，还会“想”
-传统 agent 只有输入才醒来。crabclaw 的 **Proactive Engine** 会在后台观察内部状态：当检测到风险、机会、目标偏差时，主
-动提出建议或提醒，并通过“打扰成本”机制避免过度打扰。
+## 统一术语表（中英对照）
 
-### 2) 多步推理：让 LLM 各司其职
-把复杂决策拆成多个“专用 LLM 调用”与确定性代码逻辑交织的思维链：
-- **Judge**：判定是否值得行动（价值/时效/风险/打扰成本）
-- **Writer**：生成最合适的表达方式
-- **Editor**：发出前自检语气与安全边界
+标准术语请以 [docs/glossary.md](docs/glossary.md) 为准。
 
-### 3) 内部状态：让 Agent 拥有“内驱力”
-Internal State 让 Agent 不只是短上下文记忆，而是具备目标、任务、风险监测与用户画像的“长期意识”。
+| English | 中文 | 含义 |
+|---|---|---|
+| User Scope | 用户域 | 会话/记忆/事件路由的隔离边界 |
+| Identity Mapping | 身份映射 | `(channel, external_id) -> user_id` |
+| Fanout | 多通道扇出 | 一条回复发送到多个映射通道 |
+| Loop Guard | 回环保护 | 抑制回声与循环处理 |
+| Event ID | 事件ID | 去重与可观测的稳定标识 |
+| Request ID | 请求ID | 一次请求链路关联标识 |
 
-### 4) 反思引擎：自我进化闭环
-反思层会评估行动效果：有没有价值？是否打扰？策略是否偏移？然后更新内部状态，让下一次更聪明、更稳。
+## Installation（安装）
 
-## 📦 安装
-
-**从源码安装**（推荐开发，拿到最新特性）
+### 方式 A：源码安装（推荐开发）
 
 ```bash
 git clone https://github.com/DahaiCAO/crabclaw.git
 cd crabclaw
+python -m venv .venv
+. .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -U pip
 pip install -e .
 ```
 
-**使用 [uv](https://github.com/astral-sh/uv)**（稳定、极快）
-
-```bash
-uv tool install crabclaw-ai
-```
-
-**从 PyPI 安装**（稳定）
+### 方式 B：PyPI
 
 ```bash
 pip install crabclaw-ai
 ```
 
-## 🚀 快速开始（2 分钟开聊）
+### 方式 C：uv
 
-> [!TIP]
-> API Key 写在 `~/.crabclaw/config.json`。
-> 推荐：OpenRouter（全球） · 可选：Brave Search（Web 搜索）
+```bash
+uv tool install crabclaw-ai
+```
 
-**1) 初始化**
+## Quick Start（快速开始）
+
+### 1) 初始化
 
 ```bash
 crabclaw onboard
 ```
 
-**2) 配置**（`~/.crabclaw/config.json`）
+初始化内容：
+- `~/.crabclaw/config.json`
+- `~/.crabclaw/workspace`
+- 默认管理员账号：`admin / admin2891`（含隔离 portfolio）
 
-把下面两段合并进你的配置（其余字段都有默认值）：
+### 2) 配置模型 Provider 与模型
 
-*设置 API Key（例：OpenRouter）：*
 ```json
 {
   "providers": {
     "openrouter": {
       "apiKey": "sk-or-v1-xxx"
     }
-  }
-}
-```
-
-*设置模型（可选指定 provider，否则自动检测）：*
-```json
-{
+  },
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5",
-      "provider": "openrouter"
+      "provider": "openrouter",
+      "model": "anthropic/claude-opus-4-5"
     }
   }
 }
 ```
 
-**3) 开聊**
+### 3) 启动服务
 
 ```bash
-crabclaw agent
+crabclaw gateway
 ```
 
-## 💬 多通道接入（把 crabclaw 放到你常用的 App 里）
+可选启动 Dashboard：
 
-| 通道 | 你需要准备什么 |
-|---------|---------------|
-| **Telegram** | @BotFather 创建的 Bot Token |
-| **Discord** | Bot Token + Message Content intent |
-| **WhatsApp** | 扫码登录 |
-| **Feishu** | App ID + App Secret |
-| **Mochat** | Claw token（支持自动配置） |
-| **DingTalk** | App Key + App Secret |
-| **Slack** | Bot token + App-Level token |
-| **Email** | IMAP/SMTP 账号 |
-| **QQ** | App ID + App Secret |
-
-> 详细配置请参考英文版 [README.md](README.md) 中每个通道的分步说明（包含 Telegram / Discord / Matrix / WhatsApp / 飞
-书 / QQ / 钉钉 / Slack / Email）。
-
-## ⚙️ 配置文件
-
-配置文件路径：`~/.crabclaw/config.json`
-
-### Providers（模型供应商）
-
-> [!TIP]
-> - **Groq** 可提供免费的 Whisper 语音转写（配置后 Telegram 语音自动转文字）
-> - 若你使用的是国内平台的特定 API Base，请在对应 provider 中配置 `apiBase`
-
-常用 Provider 例子（完整列表请看英文版 README）：
-
-| Provider | 说明 |
-|----------|------|
-| `openrouter` | 推荐：一个 key 访问几乎所有模型 |
-| `anthropic` | Claude 直连 |
-| `openai` | GPT 直连 |
-| `deepseek` | DeepSeek 直连 |
-| `dashscope` | 通义千问 |
-| `moonshot` | Kimi |
-| `zhipu` | 智谱 GLM |
-| `custom` | 任意 OpenAI 兼容服务（直连、无 LiteLLM） |
-
-## 🔌 MCP（Model Context Protocol）
-
-crabclaw 支持 [MCP](https://modelcontextprotocol.io/)：接入外部工具服务器，把它们当成原生工具使用。
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "filesystem": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-      },
-      "my-remote-mcp": {
-        "url": "https://example.com/mcp/",
-        "headers": {
-          "Authorization": "Bearer xxxxx"
-        }
-      }
-    }
-  }
-}
+```bash
+crabclaw dashboard
 ```
 
-## 🛡️ 安全建议
+### 4) 登录 Dashboard
 
-> [!TIP]
-> 生产环境建议设置 `"restrictToWorkspace": true` 来限制工具访问范围，降低越权风险。
+- 打开：`http://127.0.0.1:18791`
+- 默认管理员：
+  - 用户名：`admin`
+  - 密码：`admin2891`
 
-## 🖥️ CLI 速查
+## Multi-Channel（多通道）与身份映射
+
+通道启用仍在 `config.json` 的 `channels.*.enabled` 中配置。
+
+当前关键机制：
+- 通道外部身份可映射到统一用户主档；
+- 任一通道入站消息可在同一用户多端同步展示；
+- 智能体回复可按映射扇出到多个通道。
+
+## Model Providers（模型供应商）
+
+内置 provider 槽位：
+- `openrouter`, `openai`, `anthropic`, `deepseek`, `dashscope`, `gemini`,
+- `moonshot`, `zhipu`, `groq`, `volcengine`, `siliconflow`, `minimax`,
+- `custom`, `openai_codex`, `github_copilot`, `user_providers`。
+
+推荐实践：
+1. 先用 `openrouter` 作为统一网关。
+2. 关键链路补充直连 provider。
+3. 使用 `llm_routes` 按 callpoint 细分路由策略。
+
+## 安全提示
+
+- 当前设计下 `allowFrom: []` 表示拒绝所有来源。
+- 如需显式放开全部来源：`allowFrom: ["*"]`。
+- 生产环境建议 `tools.restrictToWorkspace: true`。
+- Dashboard 建议统一走 token 登录链路（`/api/login` + `/api/me`）。
+
+详见：[SECURITY.md](SECURITY.md)
+
+## CLI 速查（核心）
 
 | 命令 | 说明 |
-|---------|-------------|
-| `crabclaw onboard` | 初始化配置与 workspace |
-| `crabclaw agent` | 交互式聊天 |
-| `crabclaw agent -m "..."` | 单次对话 |
-| `crabclaw gateway` | 启动网关（接入各聊天通道） |
-| `crabclaw status` | 查看状态 |
+|---|---|
+| `crabclaw onboard` | 初始化配置与工作区 |
+| `crabclaw agent` | 交互式对话 |
+| `crabclaw gateway` | 启动网关服务 |
+| `crabclaw dashboard` | 启动仪表盘服务 |
+| `crabclaw status` | 查看运行状态 |
+| `crabclaw onboard channels status` | 查看通道状态 |
+| `crabclaw onboard channels login` | 通道登录辅助 |
+| `crabclaw onboard provider login <name>` | Provider OAuth 登录 |
 
-## 🐳 Docker
+## 端到端一致性验证脚本
 
 ```bash
-docker compose run --rm crabclaw-cli onboard
-vim ~/.crabclaw/config.json
-docker compose up -d crabclaw-gateway
+python scripts/e2e_multichannel_sync_check.py \
+  --dashboard-http http://127.0.0.1:18791 \
+  --dashboard-ws ws://127.0.0.1:18792/ws \
+  --gateway-http http://127.0.0.1:18790 \
+  --username admin \
+  --password admin2891
 ```
 
-## 📁 项目结构
+检查项：
+- 两个客户端都收到 inbound；
+- 两个客户端都收到 outbound；
+- 无重复消息；
+- 两端 outbound `event_id` 一致。
 
-```text
-crabclaw/
-├── agent/          # 🧠 Agent 核心逻辑
-├── skills/         # 🎯 Skills 系统（可插拔能力）
-├── channels/       # 📱 多平台通道接入
-├── bus/            # 🚌 消息路由
-├── cron/           # ⏰ 计划任务
-├── heartbeat/      # 💓 心跳唤醒
-├── providers/      # 🤖 LLM Providers
-├── session/        # 💬 会话管理
-├── config/         # ⚙️ 配置加载与校验
-└── cli/            # 🖥️ 命令行入口
+## FAQ（常见问题）
+
+### 为什么通道收不到消息？
+- 检查 `channels.<name>.enabled` 是否为 `true`。
+- 检查通道 token/凭据是否有效。
+- 检查 `allowFrom` 是否包含你的发送者 ID。
+- 注意：当前设计里 `allowFrom: []` 表示拒绝所有来源。
+
+### 为什么 Dashboard 重启后登录失效？
+- 重新登录获取新的 `access_token`。
+- 检查系统时间是否偏差过大。
+- 用当前 token 调用 `/api/me` 验证是否有效。
+
+### 为什么只有一个端点收到回复？
+- 检查多个外部身份是否都映射到了同一个 `user_id`。
+- 检查该用户是否配置了多个有效通道账号。
+- 检查来源端点过滤与回环保护是否生效。
+
+### 如何快速做一致性验证？
+- 执行 `python scripts/e2e_multichannel_sync_check.py --help`。
+- 按你的运行地址传入 dashboard/gateway 参数后执行。
+
+## 诊断命令块（可直接复制）
+
+```bash
+crabclaw status
+crabclaw onboard channels status
+python -m pytest -q tests/test_multi_user_isolation.py
+python scripts/e2e_multichannel_sync_check.py --help
+docker compose ps
+docker compose logs --tail=200 crabclaw-gateway crabclaw-dashboard
 ```
 
-## 🤝 贡献与路线图
+## 故障排查
 
-欢迎 PR！项目刻意保持“可读、可改、可扩展”的小而美体积。
+### Gateway 启动正常但没有出站发送
+1. 检查 `~/.crabclaw/config.json` 中 provider/model 配置。
+2. 确认 gateway/dashboard 端口可达。
+3. 查看运行日志中的 provider/channel 异常。
 
-- [ ] 多模态（图像/语音/视频）
-- [ ] 更强长期记忆
-- [ ] 更强推理与反思
-- [ ] 更多集成（Calendar 等）
-- [ ] 更强自我改进闭环
+### Dashboard 打开正常但收不到 WS 事件
+1. 确认 WS 端口可访问（默认 `ws://127.0.0.1:18792/ws`）。
+2. 确认 token 存在且有效。
+3. 登录后刷新页面以重建 WS 认证上下文。
+
+### 出现重复消息
+1. 确认事件带有 `event_id`。
+2. 确认前端版本已启用按 `event_id` 去重渲染。
+3. 排查是否为多个独立发送者产生的真实重复输入。
+
+### 回复回流到来源通道形成循环
+1. 检查身份映射是否存在重复/错误绑定。
+2. 检查回环保护窗口与 outbound 指纹逻辑。
+3. 使用 E2E 报告中的 duplicate/consistency 字段定位问题。
+
+## Docker
+
+```bash
+./scripts/docker_quickstart.sh up
+./scripts/docker_quickstart.sh status
+./scripts/docker_quickstart.sh logs
+```
+
+PowerShell：
+
+```powershell
+.\scripts\docker_quickstart.ps1 up
+.\scripts\docker_quickstart.ps1 status
+.\scripts\docker_quickstart.ps1 logs
+```
+
+## 贡献
+
+欢迎 PR。若涉及架构或行为变更，请同步提交：
+- 设计说明，
+- 测试更新，
+- 中英文文档更新。

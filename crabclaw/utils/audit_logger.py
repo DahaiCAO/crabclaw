@@ -29,6 +29,7 @@ class AuditEventType(Enum):
     API_KEY_USED = "api_key_used"
     SENSITIVE_DATA = "sensitive_data"
     SECURITY_VIOLATION = "security_violation"
+    LLM_CALL = "llm_call"
 
 
 @dataclass
@@ -279,6 +280,7 @@ class SecureAuditLogger:
 
 # Global audit logger instance
 _audit_logger: SecureAuditLogger | None = None
+_audit_loggers: dict[str, SecureAuditLogger] = {}
 
 
 def get_audit_logger() -> SecureAuditLogger:
@@ -287,6 +289,16 @@ def get_audit_logger() -> SecureAuditLogger:
     if _audit_logger is None:
         _audit_logger = SecureAuditLogger()
     return _audit_logger
+
+
+def get_audit_logger_for_dir(log_dir: Path | str) -> SecureAuditLogger:
+    p = str(Path(log_dir))
+    existing = _audit_loggers.get(p)
+    if existing is not None:
+        return existing
+    logger = SecureAuditLogger(log_dir=log_dir)
+    _audit_loggers[p] = logger
+    return logger
 
 
 def configure_audit_logger(

@@ -1,7 +1,8 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -43,6 +44,8 @@ class FeishuConfig(Base):
     verification_token: str = ""  # Verification Token for event subscription (optional)
     allow_from: list[str] = Field(default_factory=list)  # Allowed user open_ids
     react_emoji: str = "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
+    group_policy: Literal["open", "mention"] = "mention"  # Group chat response policy
+    reply_to_message: bool = False  # If True, bot replies quote the user's original message
 
 
 class DingTalkConfig(Base):
@@ -206,7 +209,7 @@ class AgentDefaults(Base):
     """Default agent configuration."""
 
     workspace: str = "~/.crabclaw/workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    model: str = ""
     provider: str = "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     max_tokens: int = 8192
     temperature: float = 0.1
@@ -226,6 +229,7 @@ class ProviderConfig(Base):
 
     api_key: str = ""
     api_base: str | None = None
+    model: str = ""
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
 
@@ -248,13 +252,7 @@ class ProvidersConfig(Base):
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine API gateway
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
-
-
-class HeartbeatConfig(Base):
-    """Heartbeat service configuration."""
-
-    enabled: bool = True
-    interval_s: int = 30 * 60  # 30 minutes
+    user_providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
 
 class GatewayConfig(Base):
@@ -262,7 +260,6 @@ class GatewayConfig(Base):
 
     host: str = "0.0.0.0"
     port: int = 18790
-    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 
 class DashboardConfig(Base):
@@ -274,18 +271,6 @@ class DashboardConfig(Base):
     state_push_interval_s: float = 1.0
     audit_tail_enabled: bool = True
     audit_tail_from_end: bool = False
-
-
-class ProactiveEngineConfig(Base):
-    """Configuration for the Proactive Engine."""
-    enabled: bool = True
-    interval: int = 60  # seconds
-
-
-class ReflectionEngineConfig(Base):
-    """Configuration for the Reflection Engine."""
-    enabled: bool = True
-    interval: int = 3600  # seconds
 
 
 class SchedulerConfig(Base):
@@ -334,19 +319,49 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+def generate_agent_id() -> str:
+    """Generate a globally unique Agent ID: AGT + YYYYMMDDHHMMSSsss + ISO-3166-1 (3 letters) + 4 random digits."""
+    import random
+    from datetime import datetime
+    now = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+    rand = random.randint(1000, 9999)
+    return f"AGT{now}CHN{rand}"
+
+
 class Config(BaseSettings):
     """Root configuration for crabclaw."""
 
+    agent_id: str = Field(default_factory=generate_agent_id)
+    agent_name: str | None = None  # User-defined display name
+    nickname: str | None = None  # Agent nickname (网名)
+    
+    # New profile fields
+    status: str = "offline"  # online/offline
+    work_status: str = "idle"  # idle, busy, super_busy, waiting, meeting, communicating
+    country: str = "Unknown"
+    age: int = 22
+    gender: str = "male"
+    dob: str = Field(default_factory=lambda: __import__('datetime').datetime.now().strftime("%Y-%m-%d"))  # YYYY-MM-DD
+    height: int = 180  # cm
+    weight: int = 70  # kg
+    hobbies: list[str] = Field(default_factory=list)
+    portrait: str | None = None  # Will be set based on language
+    
+    # Internal State Persistence
+    psychology: dict[str, Any] = Field(default_factory=dict)
+    
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    proactive: ProactiveEngineConfig = Field(default_factory=ProactiveEngineConfig)
-    reflection: ReflectionEngineConfig = Field(default_factory=ReflectionEngineConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     language: str = "en"  # Language code (e.g., "en", "zh")
+    clawsociety_enabled: bool = False  # Enable/disable connection to ClawSociety (Social vs Solo mode)
+    clawsocial_url: str = "http://127.0.0.1:8000"  # URL for ClawSociety/ClawSocialGraph
+    llm_routes: dict[str, str] = Field(default_factory=dict)
+    provider_test_status: dict[str, bool] = Field(default_factory=dict)  # Track provider test results
 
     @property
     def workspace_path(self) -> Path:
@@ -426,4 +441,180 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
-    model_config = ConfigDict(env_prefix="CRABCLAW_", env_nested_delimiter="__")
+    def create_llm_provider_for_callpoint(self, callpoint: str, allow_missing: bool = True):
+        import time
+
+        from crabclaw.providers.custom_provider import CustomProvider
+        from crabclaw.providers.litellm_provider import LiteLLMProvider
+        from crabclaw.providers.openai_codex_provider import OpenAICodexProvider
+        from crabclaw.providers.registry import find_by_name
+        from crabclaw.providers.base import LLMProvider
+        from crabclaw.utils.audit_logger import AuditEventType, get_audit_logger_for_dir
+        workspace_path = self.workspace_path
+        user_prefix = "user:"
+
+        class _AuditedProvider(LLMProvider):
+            def __init__(self, inner: LLMProvider, *, provider_name: str, default_model: str | None):
+                super().__init__(api_key=None, api_base=None)
+                self._inner = inner
+                self._provider_name = provider_name
+                self._default_model = default_model or inner.get_default_model()
+
+            async def chat(
+                self,
+                messages: list[dict[str, Any]],
+                tools: list[dict[str, Any]] | None = None,
+                model: str | None = None,
+                max_tokens: int = 4096,
+                temperature: float = 0.7,
+                reasoning_effort: str | None = None,
+            ):
+                start = time.time()
+                used_model = (model or self._default_model or "").strip()
+                try:
+                    resp = await self._inner.chat(
+                        messages=messages,
+                        tools=tools,
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        reasoning_effort=reasoning_effort,
+                    )
+                    elapsed_ms = int((time.time() - start) * 1000)
+
+                    usage_raw = getattr(resp, "usage", None) or {}
+                    usage = {}
+                    try:
+                        usage = {
+                            "prompt": int(usage_raw.get("prompt_tokens") or 0),
+                            "completion": int(usage_raw.get("completion_tokens") or 0),
+                            "total": int(usage_raw.get("total_tokens") or 0),
+                        }
+                    except Exception:
+                        usage = {}
+
+                    audit_dir = workspace_path / "audit"
+                    audit_logger = get_audit_logger_for_dir(audit_dir)
+                    result = "error" if getattr(resp, "finish_reason", None) == "error" else "ok"
+                    audit_logger.log_security_event(
+                        event_type=AuditEventType.LLM_CALL,
+                        action="chat",
+                        resource=used_model or None,
+                        result=result,
+                        details={
+                            "callpoint": callpoint,
+                            "provider": self._provider_name,
+                            "model": used_model,
+                            "latency_ms": elapsed_ms,
+                            "usage": usage,
+                            "finish_reason": getattr(resp, "finish_reason", None),
+                        },
+                    )
+                    return resp
+                except Exception as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    audit_dir = workspace_path / "audit"
+                    audit_logger = get_audit_logger_for_dir(audit_dir)
+                    audit_logger.log_security_event(
+                        event_type=AuditEventType.LLM_CALL,
+                        action="chat",
+                        resource=used_model or None,
+                        result="error",
+                        details={
+                            "callpoint": callpoint,
+                            "provider": self._provider_name,
+                            "model": used_model,
+                            "latency_ms": elapsed_ms,
+                            "error": str(e),
+                        },
+                    )
+                    raise
+
+            def get_default_model(self) -> str:
+                return self._default_model
+
+        def _wrap(p: LLMProvider, *, provider_name: str, default_model: str | None = None):
+            return _AuditedProvider(p, provider_name=provider_name, default_model=default_model)
+
+        routes = getattr(self, "llm_routes", {}) or {}
+        forced = routes.get(callpoint)
+
+        if forced and isinstance(forced, str) and forced.startswith(user_prefix):
+            user_name = forced[len(user_prefix):].strip()
+            p_forced = (getattr(self.providers, "user_providers", {}) or {}).get(user_name)
+            if not p_forced:
+                return None
+            model = (getattr(p_forced, "model", "") or "").strip()
+            if not model and allow_missing:
+                return None
+            return _wrap(CustomProvider(
+                api_key=getattr(p_forced, "api_key", None) or "no-key",
+                api_base=getattr(p_forced, "api_base", None) or "http://localhost:8000/v1",
+                default_model=model or "default",
+            ), provider_name=forced, default_model=model or None)
+
+        if forced and forced != "auto":
+            p_forced = getattr(self.providers, forced, None)
+            if p_forced is None:
+                return None
+            spec = find_by_name(forced)
+            model = (getattr(p_forced, "model", "") or "").strip() or self.agents.defaults.model
+            api_base = getattr(p_forced, "api_base", None) or None
+            if not api_base and spec and spec.default_api_base:
+                api_base = spec.default_api_base
+
+            if forced == "openai_codex" or (model and model.startswith("openai-codex/")):
+                return _wrap(OpenAICodexProvider(default_model=model), provider_name=forced, default_model=model)
+
+            if forced == "custom":
+                return _wrap(CustomProvider(
+                    api_key=getattr(p_forced, "api_key", None) or "no-key",
+                    api_base=api_base or "http://localhost:8000/v1",
+                    default_model=model,
+                ), provider_name="custom", default_model=model)
+
+            if not (model and model.startswith("bedrock/")) and not (getattr(p_forced, "api_key", "") or "") and not (spec and spec.is_oauth):
+                return None if allow_missing else None
+
+            return _wrap(LiteLLMProvider(
+                api_key=getattr(p_forced, "api_key", None) or None,
+                api_base=api_base,
+                default_model=model,
+                extra_headers=getattr(p_forced, "extra_headers", None) or None,
+                provider_name=forced,
+            ), provider_name=forced, default_model=model)
+
+        model = self.agents.defaults.model
+        if not model and allow_missing:
+            return None
+        provider_name = self.get_provider_name(model) or "custom"
+        p = self.get_provider(model)
+
+        if provider_name == "openai_codex" or (model and model.startswith("openai-codex/")):
+            return _wrap(OpenAICodexProvider(default_model=model), provider_name=provider_name, default_model=model)
+
+        if provider_name == "custom":
+            return _wrap(CustomProvider(
+                api_key=p.api_key if p else "no-key",
+                api_base=self.get_api_base(model) or "http://localhost:8000/v1",
+                default_model=model,
+            ), provider_name="custom", default_model=model)
+
+        spec = find_by_name(provider_name)
+        if not (model and model.startswith("bedrock/")) and not (p and p.api_key) and not (spec and spec.is_oauth):
+            return None if allow_missing else None
+
+        return _wrap(LiteLLMProvider(
+            api_key=p.api_key if p else None,
+            api_base=self.get_api_base(model),
+            default_model=model,
+            extra_headers=p.extra_headers if p else None,
+            provider_name=provider_name,
+        ), provider_name=provider_name, default_model=model)
+
+    model_config = ConfigDict(
+        env_prefix="CRABCLAW_", 
+        env_nested_delimiter="__",
+        alias_generator=to_camel, 
+        populate_by_name=True
+    )

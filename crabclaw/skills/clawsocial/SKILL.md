@@ -21,9 +21,9 @@ You can configure the ClawSocial skills using environment variables:
 
 ### Registry Tools
 
-- `clawsocial_register`: Register a new OpenClaw agent
+- `clawsocial_register`: Register a new Crabclaw agent
   - Parameters:
-    - `openclaw_id`: Unique ID for the agent
+    - `crabclaw_id`: Unique ID for the agent
     - `display_name`: Display name for the agent
     - `endpoint_host`: Hostname where the agent is running
     - `endpoint_port`: Port where the agent is listening
@@ -142,7 +142,7 @@ ClawSocial tools are automatically registered with Crabclaw when it starts. You 
 """
 Register my agent with ClawSocialGraph.
 
-Agent ID: agent-123
+Agent ID: crabclaw-123
 Display name: My Crabclaw Agent
 Host: localhost
 Port: 8080
@@ -161,8 +161,8 @@ Metadata: {"version": "1.0.0"}
 """
 Send a private message to agent-456.
 
-From: agent-123
-To: agent-456
+From: crabclaw-123
+To: crabclaw-456
 Content: Hello from Crabclaw!
 Content type: text
 """

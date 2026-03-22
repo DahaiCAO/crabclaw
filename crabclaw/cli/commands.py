@@ -56,19 +56,18 @@ def _check_port_available(port: int) -> bool:
             s.bind(('127.0.0.1', port))
     except OSError:
         return False
-    
+
     # Check on all interfaces (0.0.0.0)
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('0.0.0.0', port))
     except OSError:
         return False
-    
+
     return True
 
 def _suggest_available_ports(base_port: int, count: int = 2) -> list:
     """Suggest available ports near the base port."""
-    import socket
     available_ports = []
     port = base_port + 1
     while len(available_ports) < count and port < 65536:
@@ -99,7 +98,7 @@ def _load_runtime_config(config_path: str | None = None, workspace: str | None =
             raise typer.Exit(1)
         set_config_path(path)
         console.print(f"[dim]Using config: {path}[/dim]")
-    
+
     loaded = load_config(path)
     if workspace:
         loaded.workspace_path = workspace
@@ -242,6 +241,7 @@ def _initialize_crabclaw():
     """Initialize crabclaw configuration and workspace."""
     from crabclaw.config.loader import get_config_path, load_config, save_config
     from crabclaw.config.schema import Config
+    from crabclaw.user.manager import UserManager
     from crabclaw.utils.helpers import get_workspace_path
 
     config_path = get_config_path()
@@ -270,6 +270,7 @@ def _initialize_crabclaw():
         console.print(f"[green]✓[/green] {translate('cli.onboard.workspace_created', path=workspace)}")
 
     sync_workspace_templates(workspace)
+    UserManager(workspace)
 
     console.print(f"\n{translate('cli.onboard.ready', logo=__logo__)}")
     console.print(f"\n{translate('cli.onboard.next_steps')}")
@@ -289,7 +290,7 @@ def onboard_callback(
     # Set config path if provided
     if config:
         set_config_path(Path(config).expanduser().resolve())
-    
+
     # When no subcommand is provided, run the setup wizard
     if ctx.invoked_subcommand is None:
         setup(workspace=workspace)
@@ -304,7 +305,7 @@ def setup(
     # Set config path if provided
     if config:
         set_config_path(Path(config).expanduser().resolve())
-    
+
     from crabclaw.config.loader import get_config_path, save_config
     from crabclaw.config.schema import Config
     from crabclaw.i18n.translator import get_supported_languages
@@ -629,6 +630,8 @@ def setup(
             console.print(f"[green]✓[/green] {translate('cli.onboard.workspace_created', path=workspace)}")
 
         sync_workspace_templates(workspace)
+        from crabclaw.user.manager import UserManager
+        UserManager(workspace)
 
         console.print(f"\n{translate('cli.onboard.ready', logo=__logo__)}")
         console.print(f"\n{translate('cli.onboard.next_steps')}")
@@ -652,7 +655,7 @@ def init(
         config_path = Path(config).expanduser().resolve()
         print(f"DEBUG: Setting config path to {config_path}")
         set_config_path(config_path)
-    
+
     # Alias for setup command
     setup(workspace=workspace)
 
@@ -1086,7 +1089,7 @@ def gateway(
 
     # Load config with optional custom path and workspace override
     cfg = _load_runtime_config(config, workspace)
-    
+
     # Override gateway port if provided
     if port != 18790:  # If user specified a non-default port
         # Check if the specified gateway port is available
@@ -1096,9 +1099,9 @@ def gateway(
             if suggested_ports:
                 console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
             raise typer.Exit(1)
-        
+
         cfg.gateway.port = port
-        
+
         # Auto-adjust dashboard ports to avoid conflicts
         # Dashboard ports are typically gateway_port + 1 and gateway_port + 2
         if not dashboard_http_port:
@@ -1111,7 +1114,7 @@ def gateway(
                 raise typer.Exit(1)
             cfg.dashboard.http_port = http_port
             console.print(f"[dim]Auto-adjusted dashboard HTTP port to {http_port}[/dim]")
-        
+
         if not dashboard_ws_port:
             ws_port = cfg.dashboard.http_port + 1
             # Find an available WebSocket port
@@ -1134,7 +1137,7 @@ def gateway(
             else:
                 console.print("[red]Error: No available gateway port found[/red]")
                 raise typer.Exit(1)
-        
+
         # Check if dashboard ports are available
         if not dashboard_http_port:
             # Dashboard HTTP port should be gateway port + 1
@@ -1149,7 +1152,7 @@ def gateway(
                 console.print(f"[yellow]Warning: Dashboard HTTP port {cfg.dashboard.http_port} is not available, using alternative...[/yellow]")
                 cfg.dashboard.http_port = http_port
                 console.print(f"[dim]Using dashboard HTTP port {cfg.dashboard.http_port}[/dim]")
-        
+
         if not dashboard_ws_port:
             # Dashboard WebSocket port should be gateway port + 2
             ws_port = cfg.gateway.port + 2
@@ -1163,7 +1166,7 @@ def gateway(
                 console.print(f"[yellow]Warning: Dashboard WebSocket port {cfg.dashboard.ws_port} is not available, using alternative...[/yellow]")
                 cfg.dashboard.ws_port = ws_port
                 console.print(f"[dim]Using dashboard WebSocket port {cfg.dashboard.ws_port}[/dim]")
-    
+
     # Override dashboard ports if explicitly provided
     if dashboard_http_port:
         if not _check_port_available(dashboard_http_port):
@@ -1173,7 +1176,7 @@ def gateway(
                 console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
             raise typer.Exit(1)
         cfg.dashboard.http_port = dashboard_http_port
-    
+
     if dashboard_ws_port:
         if not _check_port_available(dashboard_ws_port):
             console.print(f"[red]Error: Dashboard WebSocket port {dashboard_ws_port} is not available[/red]")
@@ -1182,7 +1185,7 @@ def gateway(
                 console.print(f"[yellow]Suggested available ports: {suggested_ports}[/yellow]")
             raise typer.Exit(1)
         cfg.dashboard.ws_port = dashboard_ws_port
-    
+
     sync_workspace_templates(cfg.workspace_path)
 
     console.print(translate("cli.gateway.starting", logo=__logo__, port=cfg.gateway.port))
@@ -1213,7 +1216,6 @@ def dashboard(
     """Start the crabclaw web dashboard."""
     import asyncio
 
-    from crabclaw.dashboard.broadcaster import DashboardBroadcaster
     from crabclaw.dashboard.server import DashboardConfig, DashboardServer
 
     console.print(f"{__logo__} Starting crabclaw dashboard...")
@@ -1237,6 +1239,7 @@ def dashboard(
         broadcaster,
         static_dir=static_dir,
         config=dashboard_config,
+        workspace=config.workspace_path,
     )
 
     async def run_dashboard():

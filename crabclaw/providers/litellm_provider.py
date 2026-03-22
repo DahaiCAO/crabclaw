@@ -35,7 +35,7 @@ class LiteLLMProvider(LLMProvider):
         self,
         api_key: str | None = None,
         api_base: str | None = None,
-        default_model: str = "anthropic/claude-opus-4-5",
+        default_model: str = "",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
     ):
@@ -267,7 +267,7 @@ class LiteLLMProvider(LLMProvider):
                 tool_calls.append(ToolCallRequest(
                     id=_short_tool_id(),
                     name=tc.function.name,
-                    arguments=args,
+                    arguments=args or {},
                 ))
 
         usage = {}

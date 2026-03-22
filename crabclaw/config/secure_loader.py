@@ -211,12 +211,22 @@ def load_config(config_path: Path | None = None) -> Config:
                 data = _decrypt_sensitive_data(data, key)
 
             data = _migrate_config(data)
-            return Config.model_validate(data)
+            config = Config.model_validate(data)
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to load config from {path}: {e}")
             logger.warning("Using default configuration.")
-
-    return Config()
+            config = Config()
+    else:
+        config = Config()
+    
+    # Set default portrait based on language
+    if config.portrait is None:
+        if config.language == "zh":
+            config.portrait = "浓眉大眼，眼神温和，高鼻梁，英俊潇洒"
+        else:
+            config.portrait = "Thick eyebrows, big eyes, gentle expression, high nose bridge, handsome and dashing"
+    
+    return config
 
 
 def save_config(config: Config, config_path: Path | None = None) -> None:

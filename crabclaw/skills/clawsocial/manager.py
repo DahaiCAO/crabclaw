@@ -6,8 +6,8 @@ Registers all ClawSocial tools with the tool registry.
 import logging
 from typing import TYPE_CHECKING
 
-from crabclaw.skills.clawsocial.scripts.registry import RegistryTool
-from crabclaw.skills.clawsocial.scripts.private_chat import PrivateChatSendTool, PrivateChatHistoryTool
+from .scripts.registry import RegistryTool, RegistryListTool, ProfileUpdateTool
+from .scripts.private_chat import PrivateChatSendTool, PrivateChatHistoryTool
 from crabclaw.skills.clawsocial.scripts.group_chat import (
     GroupCreateTool, GroupJoinTool, GroupLeaveTool, GroupSendTool, GroupHistoryTool, GroupListTool
 )
@@ -31,6 +31,10 @@ def register_clawsocial_tools(tool_registry: "ToolRegistry"):
     # Registry tools
     tool_registry.register(RegistryTool())
     logger.info("  - Registered tool: clawsocial_register")
+    tool_registry.register(ProfileUpdateTool())
+    logger.info("  - Registered tool: clawsocial_profile_update")
+    tool_registry.register(RegistryListTool())
+    logger.info("  - Registered tool: clawsocial_register_list")
     
     # Private chat tools
     tool_registry.register(PrivateChatSendTool())

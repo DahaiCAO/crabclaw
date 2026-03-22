@@ -27,127 +27,33 @@ class ChannelManager:
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
 
         self._init_channels()
 
     def _init_channels(self) -> None:
-        """Initialize channels based on config."""
+        """Initialize channels discovered via pkgutil scan + entry_points plugins."""
+        from crabclaw.channels.registry import discover_all
 
-        # Telegram channel
-        if self.config.channels.telegram.enabled:
+        groq_key = self.config.providers.groq.api_key
+
+        for name, cls in discover_all().items():
+            section = getattr(self.config.channels, name, None)
+            if section is None:
+                continue
+            enabled = (
+                section.get("enabled", False)
+                if isinstance(section, dict)
+                else getattr(section, "enabled", False)
+            )
+            if not enabled:
+                continue
             try:
-                from crabclaw.channels.telegram import TelegramChannel
-                self.channels["telegram"] = TelegramChannel(
-                    self.config.channels.telegram,
-                    self.bus,
-                    groq_api_key=self.config.providers.groq.api_key,
-                )
-                logger.info("Telegram channel enabled")
-            except ImportError as e:
-                logger.warning("Telegram channel not available: {}", e)
-
-        # WhatsApp channel
-        if self.config.channels.whatsapp.enabled:
-            try:
-                from crabclaw.channels.whatsapp import WhatsAppChannel
-                self.channels["whatsapp"] = WhatsAppChannel(
-                    self.config.channels.whatsapp, self.bus
-                )
-                logger.info("WhatsApp channel enabled")
-            except ImportError as e:
-                logger.warning("WhatsApp channel not available: {}", e)
-
-        # Discord channel
-        if self.config.channels.discord.enabled:
-            try:
-                from crabclaw.channels.discord import DiscordChannel
-                self.channels["discord"] = DiscordChannel(
-                    self.config.channels.discord, self.bus
-                )
-                logger.info("Discord channel enabled")
-            except ImportError as e:
-                logger.warning("Discord channel not available: {}", e)
-
-        # Feishu channel
-        if self.config.channels.feishu.enabled:
-            try:
-                from crabclaw.channels.feishu import FeishuChannel
-                self.channels["feishu"] = FeishuChannel(
-                    self.config.channels.feishu, self.bus
-                )
-                logger.info("Feishu channel enabled")
-            except ImportError as e:
-                logger.warning("Feishu channel not available: {}", e)
-
-        # Mochat channel
-        if self.config.channels.mochat.enabled:
-            try:
-                from crabclaw.channels.mochat import MochatChannel
-
-                self.channels["mochat"] = MochatChannel(
-                    self.config.channels.mochat, self.bus
-                )
-                logger.info("Mochat channel enabled")
-            except ImportError as e:
-                logger.warning("Mochat channel not available: {}", e)
-
-        # DingTalk channel
-        if self.config.channels.dingtalk.enabled:
-            try:
-                from crabclaw.channels.dingtalk import DingTalkChannel
-                self.channels["dingtalk"] = DingTalkChannel(
-                    self.config.channels.dingtalk, self.bus
-                )
-                logger.info("DingTalk channel enabled")
-            except ImportError as e:
-                logger.warning("DingTalk channel not available: {}", e)
-
-        # Email channel
-        if self.config.channels.email.enabled:
-            try:
-                from crabclaw.channels.email import EmailChannel
-                self.channels["email"] = EmailChannel(
-                    self.config.channels.email, self.bus
-                )
-                logger.info("Email channel enabled")
-            except ImportError as e:
-                logger.warning("Email channel not available: {}", e)
-
-        # Slack channel
-        if self.config.channels.slack.enabled:
-            try:
-                from crabclaw.channels.slack import SlackChannel
-                self.channels["slack"] = SlackChannel(
-                    self.config.channels.slack, self.bus
-                )
-                logger.info("Slack channel enabled")
-            except ImportError as e:
-                logger.warning("Slack channel not available: {}", e)
-
-        # QQ channel
-        if self.config.channels.qq.enabled:
-            try:
-                from crabclaw.channels.qq import QQChannel
-                self.channels["qq"] = QQChannel(
-                    self.config.channels.qq,
-                    self.bus,
-                )
-                logger.info("QQ channel enabled")
-            except ImportError as e:
-                logger.warning("QQ channel not available: {}", e)
-
-        # Matrix channel
-        if self.config.channels.matrix.enabled:
-            try:
-                from crabclaw.channels.matrix import MatrixChannel
-                self.channels["matrix"] = MatrixChannel(
-                    self.config.channels.matrix,
-                    self.bus,
-                )
-                logger.info("Matrix channel enabled")
-            except ImportError as e:
-                logger.warning("Matrix channel not available: {}", e)
+                channel = cls(section, self.bus)
+                channel.transcription_api_key = groq_key
+                self.channels[name] = channel
+                logger.info("{} channel enabled", cls.display_name)
+            except Exception as e:
+                logger.warning("{} channel not available: {}", name, e)
 
         self._validate_allow_from()
 
@@ -170,10 +76,10 @@ class ChannelManager:
         """Start all channels and the outbound dispatcher."""
         if not self.channels:
             logger.warning("No channels enabled")
-            try:
-                await self._stop_event.wait()
-            except asyncio.CancelledError:
-                pass
+            # Keep the task running even when no channels are enabled
+            # This prevents the system from shutting down prematurely
+            while True:
+                await asyncio.sleep(1)
             return
 
         # Start outbound dispatcher
@@ -191,7 +97,6 @@ class ChannelManager:
     async def stop_all(self) -> None:
         """Stop all channels and the dispatcher."""
         logger.info("Stopping all channels...")
-        self._stop_event.set()
 
         # Stop dispatcher
         if self._dispatch_task:
@@ -227,9 +132,11 @@ class ChannelManager:
                         continue
 
                 channel = self.channels.get(msg.channel)
+                logger.info("ChannelManager: dispatching message to channel={}, chat_id={}, content={}", msg.channel, msg.chat_id, msg.content[:50] if msg.content else "")
                 if channel:
                     try:
                         await channel.send(msg)
+                        logger.info("ChannelManager: message sent successfully to {}", msg.channel)
                     except Exception as e:
                         logger.error("Error sending to {}: {}", msg.channel, e)
                 else:

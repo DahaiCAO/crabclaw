@@ -6,36 +6,39 @@ It is responsible for initializing and running the three major engines (reactive
 and managing shared resources and state persistence.
 """
 import asyncio
+import hashlib
+import json
 import logging
 import signal
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from crabclaw.agent.loop import AgentLoop  # Reactive engine
+from crabclaw.agent.state import InternalState
+from crabclaw.agent.tools.registry import ToolRegistry
+from crabclaw.bus.broadcaster import BroadcastManager
 from crabclaw.bus.queue import MessageBus
 from crabclaw.channels.manager import ChannelManager
 from crabclaw.config.loader import get_data_dir
 from crabclaw.config.schema import Config
 from crabclaw.cron.service import CronService
 from crabclaw.cron.types import CronJob
-from crabclaw.heartbeat.service import HeartbeatService
-from crabclaw.providers.base import LLMProvider
-from crabclaw.templates.manager import PromptManager
-from crabclaw.proactive.engine import ProactiveEngine  # Proactive engine
-from crabclaw.proactive.state import InternalState
-from crabclaw.reflection.engine import ReflectionEngine  # Reflection engine
-from crabclaw.reflection.logger import AuditLogger
-from crabclaw.reflection.prompt_evolution import PromptEvolutionManager
-from crabclaw.session.manager import SessionManager
-from crabclaw.agent.tools.registry import ToolRegistry
-from crabclaw.dashboard.broadcaster import DashboardBroadcaster
-from crabclaw.dashboard.server import DashboardServer
 from crabclaw.dashboard.server import DashboardConfig as _DashboardConfig
+from crabclaw.dashboard.server import DashboardServer
 from crabclaw.dashboard.tailer import JsonlTailer
 from crabclaw.gateway.server import GatewayServer, GatewayServerConfig
 from crabclaw.i18n.translator import detect_system_language, set_language
+from crabclaw.providers.base import LLMProvider
+from crabclaw.session.manager import SessionManager
+from crabclaw.templates.manager import PromptManager
+from crabclaw.user.manager import UserManager
+from crabclaw.utils.audit_logger import SecureAuditLogger
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from crabclaw.agent.loop import IOProcessor
+    from crabclaw.sapiens.agent import AgentSapiens
 
 
 class BehaviorScheduler:
@@ -43,60 +46,69 @@ class BehaviorScheduler:
     Behavior Scheduler.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, sapiens_core: "AgentSapiens", enable_gateway: bool = True, enable_dashboard: bool = True):
         self.config = config
+        self.sapiens_core = sapiens_core
+        self.enable_gateway = enable_gateway
+        self.enable_dashboard = enable_dashboard
         lang = getattr(config, "language", None) or detect_system_language()
         set_language(lang)
         self.workspace = config.workspace_path
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.state_file = self.workspace / "internal_state.json"
-        self.audit_log_file = self.workspace / "audit.log.jsonl"
+        self.audit_log_dir = self.workspace / "audit"
         self.prompts_dir = self.workspace / "prompts"
 
         # 1. Initialize shared resources
         self.state = self._load_internal_state()
         self.bus = MessageBus()
         self.provider = self._init_provider()
-        self.audit_logger = AuditLogger(str(self.audit_log_file), on_event=self._on_audit_event)
+        self.audit_logger = SecureAuditLogger(str(self.audit_log_dir))
         self.session_manager = SessionManager(self.workspace)
         self.prompt_manager = PromptManager(self.prompts_dir)
         self.tool_registry = ToolRegistry()
-        self.dashboard_broadcaster = DashboardBroadcaster()
+        self.broadcast_manager = BroadcastManager()
+        self.user_manager = UserManager(self.workspace)
         self._audit_tailer: JsonlTailer | None = None
         self._state_ticker: asyncio.Task | None = None
 
         # 3. Initialize peripheral services
         self.cron_service = self._init_cron_service()
         self.channel_manager = ChannelManager(self.config, self.bus)
-        self.gateway_server = self._init_gateway_server()
-        self.dashboard_server = self._init_dashboard_server()
+        self.gateway_server = self._init_gateway_server() if enable_gateway else None
+        self.dashboard_server = self._init_dashboard_server() if enable_dashboard else None
 
         # 4. Initialize the three major engines
         self.reactive_engine = self._init_reactive_engine()
-        self.proactive_engine = self._init_proactive_engine()
-        self.reflection_engine = self._init_reflection_engine()
-        
-        # 5. Initialize prompt evolution manager
-        self.prompt_evolution = self._init_prompt_evolution_manager()
-        
-        # 6. Initialize heartbeat service (depends on reactive engine)
-        self.heartbeat_service = self._init_heartbeat_service()
 
         # 7. Establish callback dependencies between services
         self._setup_callbacks()
-        
+
         # 8. Start prompt evolution background task
         self._evolution_task: asyncio.Task | None = None
 
         self._tasks = []
 
-    def _init_gateway_server(self) -> GatewayServer:
+    @staticmethod
+    def _stable_event_id(prefix: str, payload: dict) -> str:
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}-{digest}"
+
+    def _init_gateway_server(self) -> "GatewayServer":
+        from crabclaw.gateway.server import GatewayServer
         cfg = GatewayServerConfig(
             enabled=True,
             host=self.config.gateway.host,
             port=self.config.gateway.port,
         )
-        return GatewayServer(cfg)
+        gateway_server = GatewayServer(
+            cfg,
+            bus=self.bus,
+            broadcast_manager=self.broadcast_manager,
+            workspace=self.workspace,
+        )
+        return gateway_server
 
     def _init_dashboard_server(self) -> DashboardServer:
         static_dir = Path(__file__).parent.parent / "dashboard" / "static"
@@ -106,13 +118,18 @@ class BehaviorScheduler:
             http_port=self.config.dashboard.http_port,
             ws_port=self.config.dashboard.ws_port,
         )
-        return DashboardServer(self.dashboard_broadcaster, static_dir=static_dir, config=cfg)
+        return DashboardServer(
+            self.broadcast_manager,
+            static_dir=static_dir,
+            config=cfg,
+            workspace=self.workspace,
+        )
 
     async def _start_dashboard_streams(self) -> None:
         # 1) Tail audit log file (helps after restarts / external writers).
         if self.config.dashboard.audit_tail_enabled:
             self._audit_tailer = JsonlTailer(
-                path=self.audit_log_file,
+                path=self.audit_log_dir,
                 broadcaster=self.dashboard_broadcaster,
                 event_type="audit",
                 from_end=self.config.dashboard.audit_tail_from_end,
@@ -125,7 +142,68 @@ class BehaviorScheduler:
 
         async def _tick():
             while True:
-                await self.dashboard_broadcaster.publish("internal_state", self.state.model_dump())
+                # Sync state from sapiens_core if available
+                if self.sapiens_core:
+                    self.state.is_alive = self.sapiens_core.is_alive
+                    self.state.agent_id = self.sapiens_core.id
+
+                    # Sync Profile (Placeholder for name, etc. if they exist in core)
+                    if hasattr(self.sapiens_core, "self_model") and self.sapiens_core.self_model:
+                        self.state.name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
+                        self.state.nickname = self.sapiens_core.self_model.identity.get("nickname") or ""
+                        self.state.gender = self.sapiens_core.self_model.identity.get("gender") or "non-binary"
+                        self.state.height = self.sapiens_core.self_model.identity.get("height") or 175.0
+                        self.state.weight = self.sapiens_core.self_model.identity.get("weight") or 70.0
+                        self.state.hobbies = self.sapiens_core.self_model.identity.get("hobbies") or []
+                        self.state.self_model = {
+                            "confidence": self.sapiens_core.self_model.state.get("confidence", 0.0),
+                            "skills": self.sapiens_core.self_model.identity.get("skills", {})
+                        }
+
+                    # Sync Physiology
+                    if hasattr(self.sapiens_core, "physiology") and self.sapiens_core.physiology:
+                        p = self.sapiens_core.physiology
+                        if hasattr(p, "metabolism"):
+                            self.state.physiology = {
+                                "metabolism": {
+                                    "energy": getattr(p.metabolism, "energy", 0.0),
+                                    "health": getattr(p.metabolism, "health", 0.0),
+                                    "satiety": getattr(p.metabolism, "satiety", 0.0),
+                                }
+                            }
+                        if hasattr(p, "lifecycle"):
+                            self.state.age = p.lifecycle.age
+                            self.state.physiology["plasticity"] = p.lifecycle.plasticity
+
+                    # Sync Sociology
+                    if hasattr(self.sapiens_core, "sociology") and self.sapiens_core.sociology:
+                        s = self.sapiens_core.sociology
+                        known_count = len(getattr(s.social_mind, "mind_models", {}))
+                        potential_count = getattr(s.manager, "get_potential_agents_count", lambda: 0)()
+
+                        self.state.sociology = {
+                            "economy": {
+                                "credits": getattr(s.economy, "credits", 0.0)
+                            },
+                            "ticks_since_last_interaction": getattr(s.manager, "ticks_since_last_interaction", 0),
+                            "partners_count": max(known_count, potential_count)
+                        }
+
+                    # Sync Psychology
+                    if hasattr(self.sapiens_core, "psychology") and self.sapiens_core.psychology:
+                        psy = self.sapiens_core.psychology
+                        if hasattr(psy, "emotion"):
+                            self.state.psychology = {
+                                "emotion": psy.emotion.state
+                            }
+
+                    # Sync Needs
+                    if hasattr(self.sapiens_core, "needs_engine") and self.sapiens_core.needs_engine:
+                        self.state.needs = self.sapiens_core.needs_engine.needs
+
+                    self.state.update_timestamp()
+
+                await self.broadcast_manager.publish("internal_state", self.state.model_dump())
                 await asyncio.sleep(interval)
 
         self._state_ticker = asyncio.create_task(_tick())
@@ -146,18 +224,78 @@ class BehaviorScheduler:
         # AuditLogger callback is sync; fan-out async without blocking.
         try:
             asyncio.get_running_loop().create_task(
-                self.dashboard_broadcaster.publish("audit", entry)
+                self.broadcast_manager.publish("audit", entry)
             )
-        except RuntimeError:
-            # No loop yet (early init); ignore.
-            return
+        except Exception:
+            pass
+
+    async def _on_settings_updated(self, payload: dict) -> None:
+        """Handle settings updates from the dashboard."""
+        logger.info(f"Applying settings update to core: {payload}")
+
+        # 1. Update Core Identity if possible
+        if self.sapiens_core and self.sapiens_core.self_model:
+            identity = self.sapiens_core.self_model.identity
+            if "agent_name" in payload:
+                identity["name"] = payload["agent_name"]
+            if "nickname" in payload:
+                identity["nickname"] = payload["nickname"]
+            if "gender" in payload:
+                identity["gender"] = payload["gender"]
+            if "age" in payload:
+                val = float(payload["age"])
+                identity["age"] = val
+                # Re-calculate age_ticks based on new age so simulation continues from here
+                if hasattr(self.sapiens_core, "physiology") and self.sapiens_core.physiology:
+                    p = self.sapiens_core.physiology
+                    if hasattr(p, "lifecycle"):
+                        p.lifecycle.age_ticks = int(val * p.lifecycle.TICK_PER_YEAR)
+            if "height" in payload:
+                identity["height"] = float(payload["height"])
+            if "weight" in payload:
+                identity["weight"] = float(payload["weight"])
+            if "hobbies" in payload:
+                hobbies = payload["hobbies"]
+                if isinstance(hobbies, str):
+                    hobbies = [h.strip() for h in hobbies.split(",") if h.strip()]
+                identity["hobbies"] = hobbies
+
+        # 2. Update Psychology/Emotion in core if available
+        if self.sapiens_core and self.sapiens_core.psychology and self.sapiens_core.psychology.emotion:
+            emotion = self.sapiens_core.psychology.emotion.state
+            if "psychology.curiosity" in payload:
+                emotion["curiosity"] = float(payload["psychology.curiosity"])
+            if "psychology.confidence" in payload:
+                emotion["confidence"] = float(payload["psychology.confidence"])
+            if "psychology.risk_aversion" in payload:
+                emotion["risk_aversion"] = float(payload["psychology.risk_aversion"])
+            if "psychology.social_trust" in payload:
+                emotion["social_trust"] = float(payload["psychology.social_trust"])
+
+        # 3. Update local state immediately to avoid lag
+        if "agent_name" in payload:
+            self.state.name = payload["agent_name"]
+        if "nickname" in payload:
+            self.state.nickname = payload["nickname"]
+
+        # Force a state push
+        await self.broadcast_manager.publish(
+                        scope="system:state",
+                        message={"type": "internal_state", "data": self.state.model_dump()}
+                    )
 
     def _init_provider(self) -> LLMProvider:
+        provider = self.config.create_llm_provider_for_callpoint("agent", allow_missing=True)
+        if provider is not None:
+            return provider
+
         from crabclaw.providers.custom_provider import CustomProvider
         from crabclaw.providers.litellm_provider import LiteLLMProvider
         from crabclaw.providers.openai_codex_provider import OpenAICodexProvider
 
         model = self.config.agents.defaults.model
+        if not model:
+            return None
         provider_name = self.config.get_provider_name(model) or "custom"
         p = self.config.get_provider(model)
 
@@ -183,86 +321,28 @@ class BehaviorScheduler:
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
         return CronService(cron_store_path)
 
-    def _init_reactive_engine(self) -> AgentLoop:
-        return AgentLoop(
+    def _init_reactive_engine(self) -> "IOProcessor":
+        from crabclaw.agent.loop import IOProcessor
+        return IOProcessor(
             bus=self.bus,
-            provider=self.provider,
-            workspace=self.workspace,
-            model=self.config.agents.defaults.model,
-            temperature=self.config.agents.defaults.temperature,
-            max_tokens=self.config.agents.defaults.max_tokens,
-            max_iterations=self.config.agents.defaults.max_tool_iterations,
-            memory_window=self.config.agents.defaults.memory_window,
-            reasoning_effort=self.config.agents.defaults.reasoning_effort,
-            brave_api_key=self.config.tools.web.search.api_key or None,
-            web_proxy=self.config.tools.web.proxy or None,
-            exec_config=self.config.tools.exec,
-            cron_service=self.cron_service,
-            restrict_to_workspace=self.config.tools.restrict_to_workspace,
-            session_manager=self.session_manager,
-            audit_logger=self.audit_logger,
-            internal_state=self.state,
-            prompt_manager=self.prompt_manager,
-            tool_registry=self.tool_registry,
-            mcp_servers=self.config.tools.mcp_servers,
-            channels_config=self.config.channels,
+            sapiens_core=self.sapiens_core,
+            broadcast_manager=self.broadcast_manager
         )
 
-    def _init_proactive_engine(self) -> ProactiveEngine:
-        return ProactiveEngine(
-            state=self.state,
-            bus=self.bus,
-            provider=self.provider,
-            prompt_manager=self.prompt_manager,
-            tool_registry=self.tool_registry,
-        )
 
-    def _init_reflection_engine(self) -> ReflectionEngine:
-        return ReflectionEngine(
-            state=self.state,
-            provider=self.provider,
-            audit_log_path=str(self.audit_log_file),
-            prompt_manager=self.prompt_manager,
-            on_event=self._on_reflection_event,
-        )
-
-    def _init_prompt_evolution_manager(self) -> PromptEvolutionManager:
-        return PromptEvolutionManager(
-            prompt_manager=self.prompt_manager,
-            provider=self.provider,
-            workspace=self.workspace,
-        )
-
-    def _on_reflection_event(self, event: dict) -> None:
-        try:
-            asyncio.get_running_loop().create_task(
-                self.dashboard_broadcaster.publish("reflection", event)
-            )
-        except RuntimeError:
-            return
-
-    def _init_heartbeat_service(self) -> HeartbeatService:
-        hb_cfg = self.config.gateway.heartbeat
-        return HeartbeatService(
-            workspace=self.workspace,
-            provider=self.provider,
-            model=self.reactive_engine.model,
-            on_execute=self._on_heartbeat_execute,
-            on_notify=self._on_heartbeat_notify,
-            interval_s=hb_cfg.interval_s,
-            enabled=hb_cfg.enabled,
-        )
-
-    def _setup_callbacks(self):
-        """Set up callback functions between services."""
+    def _setup_callbacks(self) -> None:
+        """Setup all event bus listeners and cross-service callbacks."""
+        self.bus.subscribe("settings_updated", self._on_settings_updated)
+        self.bus.subscribe("inbound", self._on_bus_inbound)
+        self.bus.subscribe("outbound", self._on_bus_outbound)
         self.cron_service.on_job = self._on_cron_job
-        
+
         # Set up prompt manager change callback for hot-reload notifications
         self.prompt_manager.add_change_callback(self._on_prompt_changed)
 
     def _on_prompt_changed(self, template_name: str, new_content: str):
         """Callback when a prompt template is changed.
-        
+
         Args:
             template_name: Name of the changed template.
             new_content: New content of the template.
@@ -282,17 +362,87 @@ class BehaviorScheduler:
             # No event loop running, ignore
             pass
 
+    async def _on_bus_inbound(self, msg) -> None:
+        metadata = msg.metadata or {}
+        scope = metadata.get("user_id")
+        if not scope:
+            scope = self.user_manager.resolve_user_by_identity(msg.channel, msg.sender_id)
+        if not scope:
+            scope = self.user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
+        if not scope:
+            return
+        event = {
+            "type": "inbound_message",
+            "channel": msg.channel,
+            "chat_id": msg.chat_id,
+            "sender_id": msg.sender_id,
+            "content": msg.content,
+            "timestamp": msg.timestamp.timestamp(),
+            "metadata": metadata,
+        }
+        event["event_id"] = metadata.get("event_id") or self._stable_event_id(
+            "in",
+            {
+                "channel": msg.channel,
+                "chat_id": msg.chat_id,
+                "sender_id": msg.sender_id,
+                "content": msg.content,
+                "request_id": metadata.get("request_id", ""),
+                "timestamp": event["timestamp"],
+            },
+        )
+        await self.broadcast_manager.publish(scope=scope, message=event)
+
+    async def _on_bus_outbound(self, msg) -> None:
+        metadata = msg.metadata or {}
+        scope = metadata.get("scope") or metadata.get("user_id") or metadata.get("scope_user_id")
+        if not scope:
+            scope = self.user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
+        if not scope:
+            return
+        event = {
+            "type": "outbound_message",
+            "channel": msg.channel,
+            "chat_id": msg.chat_id,
+            "content": msg.content,
+            "timestamp": time.time(),
+            "metadata": metadata,
+        }
+        event["event_id"] = metadata.get("event_id") or self._stable_event_id(
+            "out",
+            {
+                "channel": msg.channel,
+                "chat_id": msg.chat_id,
+                "content": msg.content,
+                "request_id": metadata.get("request_id", ""),
+                "timestamp": event["timestamp"],
+            },
+        )
+        await self.broadcast_manager.publish(scope=scope, message=event)
+        await self.broadcast_manager.publish(
+            scope=scope,
+            message={
+                "type": "agent_reply",
+                "content": msg.content,
+                "channel": msg.channel,
+                "chat_id": msg.chat_id,
+                "timestamp": time.time(),
+                "request_id": metadata.get("request_id", ""),
+                "metadata": metadata,
+                "event_id": event["event_id"],
+            },
+        )
+
     async def _on_cron_job(self, job: CronJob) -> str | None:
         """Execute a cron job."""
         # This logic is directly migrated from the old cli/commands.py
         from crabclaw.agent.tools.cron import CronTool
-        from crabclaw.agent.tools.message import MessageTool
         reminder_note = (
             f"[Scheduled Task] Timer finished.\n\n"
             f"Task '{job.name}' has been triggered.\n"
             f"Scheduled instruction: {job.payload.message}"
         )
-        
+
         cron_tool = self.reactive_engine.tools.get("cron")
         cron_token = None
         if isinstance(cron_tool, CronTool):
@@ -316,26 +466,15 @@ class BehaviorScheduler:
         enabled = set(self.channel_manager.enabled_channels)
         for item in self.session_manager.list_sessions():
             key = item.get("key") or ""
-            if ":" not in key: continue
+            if ":" not in key:
+                continue
             channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}: continue
+            if channel in {"cli", "system"}:
+                continue
             if channel in enabled and chat_id:
                 return channel, chat_id
         return "cli", "direct"
 
-    async def _on_heartbeat_execute(self, tasks: str) -> str:
-        """Execute heartbeat tasks through the reactive engine."""
-        channel, chat_id = self._pick_heartbeat_target()
-        return await self.reactive_engine.process_direct(
-            tasks, session_key="heartbeat", channel=channel, chat_id=chat_id
-        )
-
-    async def _on_heartbeat_notify(self, response: str) -> None:
-        """Send heartbeat response to user channel."""
-        from crabclaw.bus.events import OutboundMessage
-        channel, chat_id = self._pick_heartbeat_target()
-        if channel != "cli":
-            await self.bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
 
     def _load_internal_state(self) -> InternalState:
         if self.state_file.exists():
@@ -350,7 +489,10 @@ class BehaviorScheduler:
         self.state_file.write_text(self.state.model_dump_json(indent=2), encoding="utf-8")
         try:
             asyncio.get_running_loop().create_task(
-                self.dashboard_broadcaster.publish("internal_state", self.state.model_dump())
+                self.broadcast_manager.publish(
+                        scope="system:state",
+                        message={"type": "internal_state", "data": self.state.model_dump()}
+                    )
             )
         except RuntimeError:
             pass
@@ -362,28 +504,43 @@ class BehaviorScheduler:
         logger.info("Behavior Scheduler starting all services and engines...")
 
         # Start peripheral services
-        await self.gateway_server.start()
-        await self.dashboard_server.start()
-        await self._start_dashboard_streams()
-        await self.cron_service.start()
-        await self.heartbeat_service.start()
-        
-        # Start background tasks for the three major engines (if enabled in config)
-        if self.config.proactive.enabled:
-            self.proactive_engine.start(interval_seconds=self.config.proactive.interval)
-        if self.config.reflection.enabled:
-            self.reflection_engine.start(interval_seconds=self.config.reflection.interval)
-        
-        # Start prompt evolution background task (runs every 30 minutes)
-        self._evolution_task = asyncio.create_task(self._run_prompt_evolution())
-        
+        if self.enable_gateway and self.gateway_server:
+            try:
+                await self.gateway_server.start()
+                self.gateway_server._loop = asyncio.get_running_loop()
+            except Exception as e:
+                logger.warning(f"Gateway server failed to start: {e}")
+
+        if self.enable_dashboard and self.dashboard_server:
+            try:
+                await self.dashboard_server.start()
+                await self._start_dashboard_streams()
+            except Exception as e:
+                logger.warning(f"Dashboard failed to start: {e}")
+
+        try:
+            await self.cron_service.start()
+        except Exception as e:
+            logger.warning(f"Cron service failed to start: {e}")
+
+        # Start the Sapiens mind thread (it's sync and blocking)
+        import threading
+        mind_thread = threading.Thread(
+            target=self.sapiens_core.live,
+            name="sapiens-mind",
+            daemon=True
+        )
+        mind_thread.start()
+        logger.info("Sapiens mind thread started.")
+
         # Start the core reactive engine and channel manager
         reactive_task = asyncio.create_task(self.reactive_engine.run())
         channels_task = asyncio.create_task(self.channel_manager.start_all())
         self._tasks.extend([reactive_task, channels_task])
 
         logger.info("All services and engines are now running.")
-        logger.info("Dashboard: %s", self.dashboard_server.http_url)
+        if self.enable_dashboard and self.dashboard_server:
+            logger.info("Dashboard: %s", self.dashboard_server.http_url)
 
         # Gracefully handle stop signals
         loop = asyncio.get_running_loop()
@@ -428,9 +585,9 @@ class BehaviorScheduler:
             try:
                 await asyncio.sleep(1800)  # Run every 30 minutes
                 logger.info("Running prompt evolution analysis...")
-                
+
                 records = await self.prompt_evolution.analyze_and_evolve()
-                
+
                 if records:
                     logger.info("Applied %s prompt improvements", len(records))
                     # Broadcast evolution event to dashboard
@@ -449,7 +606,7 @@ class BehaviorScheduler:
                             pass
                 else:
                     logger.debug("No prompt improvements needed at this time")
-                    
+
             except asyncio.CancelledError:
                 logger.info("Prompt evolution task was cancelled")
                 break
@@ -459,7 +616,7 @@ class BehaviorScheduler:
 
     async def stop(self):
         logger.info("Behavior Scheduler stopping all services and engines...")
-        
+
         # Cancel prompt evolution task
         if self._evolution_task:
             self._evolution_task.cancel()
@@ -467,20 +624,25 @@ class BehaviorScheduler:
                 await self._evolution_task
             except asyncio.CancelledError:
                 pass
-        
+
         # Stop all background tasks and engines
-        self.proactive_engine.stop()
-        self.reflection_engine.stop()
-        self.heartbeat_service.stop()
         self.cron_service.stop()
-        
-        self.reactive_engine.stop()
-        
+
+        # Stop reactive engine (IOProcessor)
+        if hasattr(self.reactive_engine, "stop"):
+            if asyncio.iscoroutinefunction(self.reactive_engine.stop):
+                await self.reactive_engine.stop()
+            else:
+                self.reactive_engine.stop()
+
         await self.channel_manager.stop_all()
-        await self.reactive_engine.close_mcp()
-        await self._stop_dashboard_streams()
-        await self.dashboard_server.stop()
-        await self.gateway_server.stop()
+
+        if self.enable_dashboard and self.dashboard_server:
+            await self._stop_dashboard_streams()
+            await self.dashboard_server.stop()
+
+        if self.enable_gateway and self.gateway_server:
+            await self.gateway_server.stop()
 
         for task in self._tasks:
             if not task.done():

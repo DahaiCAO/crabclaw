@@ -6,7 +6,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from crabclaw.dashboard.broadcaster import DashboardBroadcaster
+from crabclaw.bus.broadcaster import BroadcastManager
 
 
 class JsonlTailer:
@@ -18,7 +18,7 @@ class JsonlTailer:
     def __init__(
         self,
         path: Path,
-        broadcaster: DashboardBroadcaster,
+        broadcaster: BroadcastManager,
         *,
         event_type: str = "audit",
         poll_interval_s: float = 0.5,
@@ -53,19 +53,36 @@ class JsonlTailer:
 
     async def _loop(self) -> None:
         pos = 0
-        if self.from_end and self.path.exists():
+        current_file: Path | None = None
+        
+        def get_active_log_file() -> Path | None:
+            if self.path.is_file():
+                return self.path
+            if self.path.is_dir():
+                candidates = sorted(self.path.glob("audit_*.log"), key=lambda p: p.stat().st_mtime)
+                return candidates[-1] if candidates else None
+            return None
+
+        current_file = get_active_log_file()
+        if self.from_end and current_file and current_file.exists():
             try:
-                pos = self.path.stat().st_size
+                pos = current_file.stat().st_size
             except Exception:
                 pos = 0
 
         while self._running:
             try:
-                if not self.path.exists():
+                # Check if file changed (rotation)
+                new_latest = get_active_log_file()
+                if new_latest != current_file:
+                    current_file = new_latest
+                    pos = 0  # Start from beginning of new file
+
+                if not current_file or not current_file.exists():
                     await asyncio.sleep(self.poll_interval_s)
                     continue
 
-                size = self.path.stat().st_size
+                size = current_file.stat().st_size
                 if size < pos:
                     # rotation/truncate
                     pos = 0
@@ -75,7 +92,7 @@ class JsonlTailer:
                     continue
 
                 # Read incrementally; tolerate partial line at end.
-                with self.path.open("rb") as f:
+                with current_file.open("rb") as f:
                     f.seek(pos)
                     chunk = f.read(size - pos)
                     pos = f.tell()

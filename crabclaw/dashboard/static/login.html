@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crabclaw - Login</title>
+    <style>
+        :root {
+            /* Dark theme variables */
+            --bg-dark: #1a1a1a;
+            --bg-alt-dark: #2a2a2a;
+            --text-dark: #ffffff;
+            --muted-dark: #888888;
+            --accent-dark: #6366f1;
+            --accent-hover-dark: #4f46e5;
+            --border-dark: #3a3a3a;
+            --error-dark: #ef4444;
+            
+            /* Light theme variables */
+            --bg-light: #ffffff;
+            --bg-alt-light: #f8fafc;
+            --text-light: #1e293b;
+            --muted-light: #64748b;
+            --accent-light: #6366f1;
+            --accent-hover-light: #4f46e5;
+            --border-light: #e2e8f0;
+            --error-light: #ef4444;
+        }
+
+        /* Default to dark theme */
+        body {
+            --bg: var(--bg-dark);
+            --bg-alt: var(--bg-alt-dark);
+            --text: var(--text-dark);
+            --muted: var(--muted-dark);
+            --accent: var(--accent-dark);
+            --accent-hover: var(--accent-hover-dark);
+            --border: var(--border-dark);
+            --error: var(--error-dark);
+        }
+
+        /* Light theme */
+        body[data-theme="light"] {
+            --bg: var(--bg-light);
+            --bg-alt: var(--bg-alt-light);
+            --text: var(--text-light);
+            --muted: var(--muted-light);
+            --accent: var(--accent-light);
+            --accent-hover: var(--accent-hover-light);
+            --border: var(--border-light);
+            --error: var(--error-light);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: var(--bg-alt);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            border: 1px solid var(--border);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .logo p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 16px;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-actions {
+            margin-top: 30px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 20px;
+            color: var(--error);
+            font-size: 14px;
+        }
+
+        .register-link {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .register-link a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🦀 Crabclaw</h1>
+            <p>Personal AI Assistant</p>
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+
+        <form id="login-form">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="login-button">
+                    Login
+                </button>
+            </div>
+        </form>
+
+        <div class="register-link">
+            Don't have an account? <a href="#" id="register-link">Create one</a>
+        </div>
+    </div>
+
+    <div id="register-container" class="login-container" style="display: none;">
+        <div class="logo">
+            <h1>🦀 Crabclaw</h1>
+            <p>Create Account</p>
+        </div>
+
+        <div id="register-error" class="error-message" style="display: none;"></div>
+
+        <form id="register-form">
+            <div class="form-group">
+                <label for="register-username">Username</label>
+                <input type="text" id="register-username" name="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="register-display-name">Display Name</label>
+                <input type="text" id="register-display-name" name="display_name" required>
+            </div>
+
+            <div class="form-group">
+                <label for="register-password">Password</label>
+                <input type="password" id="register-password" name="password" required>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="register-button">
+                    Create Account
+                </button>
+            </div>
+        </form>
+
+        <div class="register-link">
+            Already have an account? <a href="#" id="login-link">Login</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load saved theme from localStorage
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.body.setAttribute('data-theme', savedTheme);
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                fetch('/api/me', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                    },
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.ok) {
+                        window.location.href = '/';
+                    }
+                })
+                .catch(() => {});
+            }
+            
+            const loginContainer = document.querySelector('.login-container');
+            const registerContainer = document.getElementById('register-container');
+            const registerLink = document.getElementById('register-link');
+            const loginLink = document.getElementById('login-link');
+            const loginForm = document.getElementById('login-form');
+            const registerForm = document.getElementById('register-form');
+            const errorMessage = document.getElementById('error-message');
+            const registerError = document.getElementById('register-error');
+            const loginButton = document.getElementById('login-button');
+            const registerButton = document.getElementById('register-button');
+
+            // Show register form
+            registerLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                loginContainer.style.display = 'none';
+                registerContainer.style.display = 'block';
+            });
+
+            // Show login form
+            loginLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                registerContainer.style.display = 'none';
+                loginContainer.style.display = 'block';
+            });
+
+            // Handle login form submission
+            loginForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                
+                if (!username || !password) {
+                    showError(errorMessage, 'Please enter both username and password');
+                    return;
+                }
+
+                loginButton.classList.add('loading');
+                loginButton.textContent = 'Logging in...';
+
+                // Send login request
+                fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    loginButton.classList.remove('loading');
+                    loginButton.textContent = 'Login';
+
+                    if (data.ok) {
+                        if (data.access_token) {
+                            localStorage.setItem('access_token', data.access_token);
+                        }
+                        window.location.href = '/';
+                    } else {
+                        showError(errorMessage, data.error || 'Login failed');
+                    }
+                })
+                .catch(error => {
+                    loginButton.classList.remove('loading');
+                    loginButton.textContent = 'Login';
+                    showError(errorMessage, 'An error occurred. Please try again.');
+                });
+            });
+
+            // Handle register form submission
+            registerForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('register-username').value;
+                const displayName = document.getElementById('register-display-name').value;
+                const password = document.getElementById('register-password').value;
+                
+                if (!username || !displayName || !password) {
+                    showError(registerError, 'Please fill in all fields');
+                    return;
+                }
+
+                registerButton.classList.add('loading');
+                registerButton.textContent = 'Creating account...';
+
+                // Send register request
+                fetch('/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, display_name: displayName, password })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    registerButton.classList.remove('loading');
+                    registerButton.textContent = 'Create Account';
+
+                    if (data.ok) {
+                        if (data.access_token) {
+                            localStorage.setItem('access_token', data.access_token);
+                        }
+                        window.location.href = '/';
+                    } else {
+                        showError(registerError, data.error || 'Registration failed');
+                    }
+                })
+                .catch(error => {
+                    registerButton.classList.remove('loading');
+                    registerButton.textContent = 'Create Account';
+                    showError(registerError, 'An error occurred. Please try again.');
+                });
+            });
+
+            function showError(element, message) {
+                element.textContent = message;
+                element.style.display = 'block';
+                setTimeout(() => {
+                    element.style.display = 'none';
+                }, 5000);
+            }
+        });
+    </script>
+</body>
+</html>

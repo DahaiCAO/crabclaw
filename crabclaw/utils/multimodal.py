@@ -260,7 +260,20 @@ class VisionClient:
             ]}
         ]
 
-        response = await self._provider.chat(messages)
+        provider = self._provider
+        try:
+            from crabclaw.config.loader import load_config
+            cfg = load_config()
+            routed = cfg.create_llm_provider_for_callpoint("vision", allow_missing=True)
+            if routed is not None:
+                provider = routed
+        except Exception:
+            pass
+
+        try:
+            response = await provider.chat(messages=messages, model=None)
+        except TypeError:
+            response = await provider.chat(messages)
         return response.content or ""
 
 
@@ -286,7 +299,20 @@ class TranscriptionClient:
             ]}
         ]
 
-        response = await self._provider.chat(messages)
+        provider = self._provider
+        try:
+            from crabclaw.config.loader import load_config
+            cfg = load_config()
+            routed = cfg.create_llm_provider_for_callpoint("transcribe_llm", allow_missing=True)
+            if routed is not None:
+                provider = routed
+        except Exception:
+            pass
+
+        try:
+            response = await provider.chat(messages=messages, model=None)
+        except TypeError:
+            response = await provider.chat(messages)
         return response.content or ""
 
 

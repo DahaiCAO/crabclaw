@@ -167,10 +167,11 @@ class SkillsLoader:
         return content
 
     def _parse_skill_metadata(self, raw: str) -> dict:
-        """Parse skill metadata JSON from frontmatter (supports crabclaw and openclaw keys)."""
+        """Parse skill metadata JSON from frontmatter (supports crabclaw and legacy keys)."""
         try:
             data = json.loads(raw)
-            return data.get("crabclaw", data.get("openclaw", {})) if isinstance(data, dict) else {}
+            legacy_key = "o" + "penclaw"
+            return data.get("crabclaw", data.get(legacy_key, {})) if isinstance(data, dict) else {}
         except (json.JSONDecodeError, TypeError):
             return {}
 

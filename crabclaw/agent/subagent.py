@@ -118,6 +118,18 @@ class SubagentManager:
                 {"role": "user", "content": task},
             ]
 
+            provider = self.provider
+            model = self.model
+            try:
+                from crabclaw.config.loader import load_config
+                cfg = load_config()
+                routed = cfg.create_llm_provider_for_callpoint("subagent", allow_missing=True)
+                if routed is not None:
+                    provider = routed
+                    model = routed.get_default_model()
+            except Exception:
+                pass
+
             # Run agent loop (limited iterations)
             max_iterations = 15
             iteration = 0
@@ -126,10 +138,10 @@ class SubagentManager:
             while iteration < max_iterations:
                 iteration += 1
 
-                response = await self.provider.chat(
+                response = await provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
-                    model=self.model,
+                    model=model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,

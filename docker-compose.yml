@@ -4,15 +4,15 @@ x-common-config: &common-config
     dockerfile: Dockerfile
   volumes:
     - ~/.crabclaw:/root/.crabclaw
+  restart: unless-stopped
 
 services:
   crabclaw-gateway:
     container_name: crabclaw-gateway
     <<: *common-config
     command: ["gateway"]
-    restart: unless-stopped
     ports:
-      - 18790:18790
+      - "18790:18790"
     deploy:
       resources:
         limits:
@@ -21,7 +21,23 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
-  
+
+  crabclaw-dashboard:
+    container_name: crabclaw-dashboard
+    <<: *common-config
+    command: ["dashboard"]
+    ports:
+      - "18791:18791"
+      - "18792:18792"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
   crabclaw-cli:
     <<: *common-config
     profiles:

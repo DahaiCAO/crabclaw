@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from crabclaw.utils.helpers import ensure_dir
+from crabclaw.utils.helpers import ensure_dir, safe_filename
 
 if TYPE_CHECKING:
     from crabclaw.providers.base import LLMProvider
@@ -49,21 +49,42 @@ class MemoryStore:
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.history_file = self.memory_dir / "HISTORY.md"
+        self.user_memory_root = ensure_dir(workspace / "memory_by_user")
 
-    def read_long_term(self) -> str:
-        if self.memory_file.exists():
-            return self.memory_file.read_text(encoding="utf-8")
+    @staticmethod
+    def _normalize_user_scope(user_scope: str | None) -> str | None:
+        if user_scope is None:
+            return None
+        value = str(user_scope).strip()
+        return value or None
+
+    def _get_user_memory_paths(self, user_scope: str) -> tuple[Path, Path]:
+        user_dir = ensure_dir(self.user_memory_root / safe_filename(user_scope))
+        return user_dir / "MEMORY.md", user_dir / "HISTORY.md"
+
+    def _resolve_paths(self, user_scope: str | None = None) -> tuple[Path, Path]:
+        normalized = self._normalize_user_scope(user_scope)
+        if normalized is None:
+            return self.memory_file, self.history_file
+        return self._get_user_memory_paths(normalized)
+
+    def read_long_term(self, user_scope: str | None = None) -> str:
+        memory_file, _ = self._resolve_paths(user_scope=user_scope)
+        if memory_file.exists():
+            return memory_file.read_text(encoding="utf-8")
         return ""
 
-    def write_long_term(self, content: str) -> None:
-        self.memory_file.write_text(content, encoding="utf-8")
+    def write_long_term(self, content: str, user_scope: str | None = None) -> None:
+        memory_file, _ = self._resolve_paths(user_scope=user_scope)
+        memory_file.write_text(content, encoding="utf-8")
 
-    def append_history(self, entry: str) -> None:
-        with open(self.history_file, "a", encoding="utf-8") as f:
+    def append_history(self, entry: str, user_scope: str | None = None) -> None:
+        _, history_file = self._resolve_paths(user_scope=user_scope)
+        with open(history_file, "a", encoding="utf-8") as f:
             f.write(entry.rstrip() + "\n\n")
 
-    def get_memory_context(self) -> str:
-        long_term = self.read_long_term()
+    def get_memory_context(self, user_scope: str | None = None) -> str:
+        long_term = self.read_long_term(user_scope=user_scope)
         return f"## Long-term Memory\n{long_term}" if long_term else ""
 
     async def consolidate(
@@ -74,6 +95,7 @@ class MemoryStore:
         *,
         archive_all: bool = False,
         memory_window: int = 50,
+        user_scope: str | None = None,
     ) -> bool:
         """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call.
 
@@ -101,7 +123,7 @@ class MemoryStore:
             tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
             lines.append(f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}")
 
-        current_memory = self.read_long_term()
+        current_memory = self.read_long_term(user_scope=user_scope)
         prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
 
 ## Current Long-term Memory
@@ -111,13 +133,25 @@ class MemoryStore:
 {chr(10).join(lines)}"""
 
         try:
-            response = await provider.chat(
+            p = provider
+            m = model
+            try:
+                from crabclaw.config.loader import load_config
+                cfg = load_config()
+                routed = cfg.create_llm_provider_for_callpoint("memory_consolidation", allow_missing=True)
+                if routed is not None:
+                    p = routed
+                    m = routed.get_default_model()
+            except Exception:
+                pass
+
+            response = await p.chat(
                 messages=[
                     {"role": "system", "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."},
                     {"role": "user", "content": prompt},
                 ],
                 tools=_SAVE_MEMORY_TOOL,
-                model=model,
+                model=m,
             )
 
             if not response.has_tool_calls:
@@ -135,12 +169,12 @@ class MemoryStore:
             if entry := args.get("history_entry"):
                 if not isinstance(entry, str):
                     entry = json.dumps(entry, ensure_ascii=False)
-                self.append_history(entry)
+                self.append_history(entry, user_scope=user_scope)
             if update := args.get("memory_update"):
                 if not isinstance(update, str):
                     update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
-                    self.write_long_term(update)
+                    self.write_long_term(update, user_scope=user_scope)
 
             session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
             logger.info("Memory consolidation done: {} messages, last_consolidated={}", len(session.messages), session.last_consolidated)

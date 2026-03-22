@@ -2,262 +2,86 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in crabclaw, please report it by:
+If you discover a security issue in Crabclaw:
 
-1. **DO NOT** open a public GitHub issue
-2. Create a private security advisory on GitHub or contact the repository maintainers (xubinrencs@gmail.com)
+1. Do not open a public issue for exploitable details.
+2. Create a GitHub Security Advisory, or contact maintainers directly.
 3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
+   - impact,
+   - affected version/commit,
+   - reproducible steps,
+   - suggested mitigation (if available).
 
-We aim to respond to security reports within 48 hours.
+## Current Security Model
 
-## Security Best Practices
+### Authentication and Session
 
-### 1. API Key Management
+- Dashboard uses token-based auth (`/api/login` + `/api/me`).
+- User identity is carried by token subject (`user_id`).
+- Account lifecycle endpoints:
+  - `/api/logout`
+  - `/api/delete-account`
 
-**CRITICAL**: Never commit API keys to version control.
+### Channel Access Control
 
-```bash
-# ‚ú?Good: Store in config file with restricted permissions
-chmod 600 ~/.crabclaw/config.json
+- `channels.*.allowFrom` is explicit allowlist.
+- In current design, `allowFrom: []` means deny all.
+- To allow all senders intentionally, use `allowFrom: ["*"]`.
 
-# ‚ù?Bad: Hardcoding keys in code or committing them
-```
+### Multi-User Isolation
 
-**Recommendations:**
-- Store API keys in `~/.crabclaw/config.json` with file permissions set to `0600`
-- Consider using environment variables for sensitive keys
-- Use OS keyring/credential manager for production deployments
-- Rotate API keys regularly
-- Use separate API keys for development and production
+- User profile: `workspace/users/*.json`
+- User portfolio: `workspace/portfolios/<user_id>/...`
+- User-scoped session and memory (`user_scope`).
+- User-scoped channel config and identity mapping.
 
-### 2. Channel Access Control
+### Tool and Filesystem Safety
 
-**IMPORTANT**: Always configure `allowFrom` lists for production use.
+- `tools.restrictToWorkspace: true` is strongly recommended in production.
+- Keep the runtime user non-root and least-privileged.
+- Review logs and audit events regularly.
 
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["123456789", "987654321"]
-    },
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
-    }
-  }
-}
-```
+### Network and Integration Safety
 
-**Security Notes:**
-- In `v0.1.4.post3` and earlier, an empty `allowFrom` allows all users. In newer versions (including source builds), **empty `allowFrom` denies all access** ‚Ä?set `["*"]` to explicitly allow everyone.
-- Get your Telegram user ID from `@userinfobot`
-- Use full phone numbers with country code for WhatsApp
-- Review access logs regularly for unauthorized access attempts
+- Prefer HTTPS endpoints for provider/tool integrations.
+- Keep bridge ports and dashboard ports protected by host/network policy.
+- Do not expose internal endpoints publicly without reverse proxy/auth policy.
 
-### 3. Shell Command Execution
+## Operational Best Practices
 
-The `exec` tool can execute shell commands. While dangerous command patterns are blocked, you should:
+### Secret Management
 
-- ‚ú?Review all tool usage in agent logs
-- ‚ú?Understand what commands the agent is running
-- ‚ú?Use a dedicated user account with limited privileges
-- ‚ú?Never run crabclaw as root
-- ‚ù?Don't disable security checks
-- ‚ù?Don't run on systems with sensitive data without careful review
+- Never commit API keys/tokens.
+- Store secrets in `~/.crabclaw/config.json` with strict permissions.
+- Use separate keys for development and production.
+- Rotate keys periodically.
 
-**Blocked patterns:**
-- `rm -rf /` - Root filesystem deletion
-- Fork bombs
-- Filesystem formatting (`mkfs.*`)
-- Raw disk writes
-- Other destructive operations
+### Dependency Security
 
-### 4. File System Access
-
-File operations have path traversal protection, but:
-
-- ‚ú?Run crabclaw with a dedicated user account
-- ‚ú?Use filesystem permissions to protect sensitive directories
-- ‚ú?Regularly audit file operations in logs
-- ‚ù?Don't give unrestricted access to sensitive files
-
-### 5. Network Security
-
-**API Calls:**
-- All external API calls use HTTPS by default
-- Timeouts are configured to prevent hanging requests
-- Consider using a firewall to restrict outbound connections if needed
-
-**WhatsApp Bridge:**
-- The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
-- Set `bridgeToken` in config to enable shared-secret authentication between Python and Node.js
-- Keep authentication data in `~/.crabclaw/whatsapp-auth` secure (mode 0700)
-
-### 6. Dependency Security
-
-**Critical**: Keep dependencies updated!
+- Keep Python and Node dependencies updated.
+- Run dependency audits regularly:
 
 ```bash
-# Check for vulnerable dependencies
 pip install pip-audit
 pip-audit
-
-# Update to latest secure versions
-pip install --upgrade crabclaw-ai
 ```
 
-For Node.js dependencies (WhatsApp bridge):
 ```bash
 cd bridge
 npm audit
-npm audit fix
 ```
 
-**Important Notes:**
-- Keep `litellm` updated to the latest version for security fixes
-- We've updated `ws` to `>=8.17.1` to fix DoS vulnerability
-- Run `pip-audit` or `npm audit` regularly
-- Subscribe to security advisories for crabclaw and its dependencies
+### Deployment Hardening
 
-### 7. Production Deployment
+- Run in container/VM for production.
+- Use dedicated service account.
+- Restrict filesystem permissions for `~/.crabclaw`.
+- Monitor logs and set alerting for abnormal traffic/usage.
 
-For production use:
+## Incident Response Checklist
 
-1. **Isolate the Environment**
-   ```bash
-   # Run in a container or VM
-   docker run --rm -it python:3.11
-   pip install crabclaw-ai
-   ```
-
-2. **Use a Dedicated User**
-   ```bash
-   sudo useradd -m -s /bin/bash crabclaw
-   sudo -u crabclaw crabclaw gateway
-   ```
-
-3. **Set Proper Permissions**
-   ```bash
-   chmod 700 ~/.crabclaw
-   chmod 600 ~/.crabclaw/config.json
-   chmod 700 ~/.crabclaw/whatsapp-auth
-   ```
-
-4. **Enable Logging**
-   ```bash
-   # Configure log monitoring
-   tail -f ~/.crabclaw/logs/crabclaw.log
-   ```
-
-5. **Use Rate Limiting**
-   - Configure rate limits on your API providers
-   - Monitor usage for anomalies
-   - Set spending limits on LLM APIs
-
-6. **Regular Updates**
-   ```bash
-   # Check for updates weekly
-   pip install --upgrade crabclaw-ai
-   ```
-
-### 8. Development vs Production
-
-**Development:**
-- Use separate API keys
-- Test with non-sensitive data
-- Enable verbose logging
-- Use a test Telegram bot
-
-**Production:**
-- Use dedicated API keys with spending limits
-- Restrict file system access
-- Enable audit logging
-- Regular security reviews
-- Monitor for unusual activity
-
-### 9. Data Privacy
-
-- **Logs may contain sensitive information** - secure log files appropriately
-- **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect the `~/.crabclaw` directory
-- **API keys are in plain text** - use OS keyring for production
-
-### 10. Incident Response
-
-If you suspect a security breach:
-
-1. **Immediately revoke compromised API keys**
-2. **Review logs for unauthorized access**
-   ```bash
-   grep "Access denied" ~/.crabclaw/logs/crabclaw.log
-   ```
-3. **Check for unexpected file modifications**
-4. **Rotate all credentials**
-5. **Update to latest version**
-6. **Report the incident** to maintainers
-
-## Security Features
-
-### Built-in Security Controls
-
-‚ú?**Input Validation**
-- Path traversal protection on file operations
-- Dangerous command pattern detection
-- Input length limits on HTTP requests
-
-‚ú?**Authentication**
-- Allow-list based access control ‚Ä?in `v0.1.4.post3` and earlier empty means allow all; in newer versions empty means deny all (`["*"]` to explicitly allow all)
-- Failed authentication attempt logging
-
-‚ú?**Resource Protection**
-- Command execution timeouts (60s default)
-- Output truncation (10KB limit)
-- HTTP request timeouts (10-30s)
-
-‚ú?**Secure Communication**
-- HTTPS for all external API calls
-- TLS for Telegram API
-- WhatsApp bridge: localhost-only binding + optional token auth
-
-## Known Limitations
-
-‚ö†Ô∏è **Current Security Limitations:**
-
-1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
-2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
-3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
-
-## Security Checklist
-
-Before deploying crabclaw:
-
-- [ ] API keys stored securely (not in code)
-- [ ] Config file permissions set to 0600
-- [ ] `allowFrom` lists configured for all channels
-- [ ] Running as non-root user
-- [ ] File system permissions properly restricted
-- [ ] Dependencies updated to latest secure versions
-- [ ] Logs monitored for security events
-- [ ] Rate limits configured on API providers
-- [ ] Backup and disaster recovery plan in place
-- [ ] Security review of custom skills/tools
-
-## Updates
-
-**Last Updated**: 2026-02-03
-
-For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/HKUDS/crabclaw/security/advisories
-- Release Notes: https://github.com/HKUDS/crabclaw/releases
-
-## License
-
-See LICENSE file for details.
+1. Revoke compromised credentials immediately.
+2. Preserve and review logs.
+3. Rotate keys/tokens and force re-authentication.
+4. Patch/upgrade affected environment.
+5. Publish internal postmortem and mitigation status.

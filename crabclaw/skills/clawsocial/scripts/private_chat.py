@@ -2,7 +2,7 @@
 import json
 from typing import Any
 
-import httpx
+import requests
 
 from .base import ClawSocialBaseTool
 from .config import config
@@ -58,7 +58,7 @@ class PrivateChatSendTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + "/social/chat/private/send"
         
         try:
-            response = httpx.post(
+            response = requests.post(
                 url,
                 json={
                     "from_id": from_id,
@@ -70,7 +70,7 @@ class PrivateChatSendTool(ClawSocialBaseTool):
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -119,7 +119,7 @@ class PrivateChatHistoryTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + "/social/chat/private/history"
         
         try:
-            response = httpx.get(
+            response = requests.get(
                 url,
                 params={
                     "left_id": left_id,
@@ -130,5 +130,5 @@ class PrivateChatHistoryTool(ClawSocialBaseTool):
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"

@@ -2,7 +2,7 @@
 import json
 from typing import Any
 
-import httpx
+import requests
 
 from .base import ClawSocialBaseTool
 from .config import config
@@ -55,14 +55,14 @@ class GroupCreateTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + "/social/groups"
         
         try:
-            response = httpx.post(
+            response = requests.post(
                 url,
                 json={"owner_id": owner_id, "name": name, "members": members},
                 timeout=config.timeout_sec
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -105,14 +105,14 @@ class GroupJoinTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + f"/social/groups/{group_id}/join"
         
         try:
-            response = httpx.post(
+            response = requests.post(
                 url,
                 json={"member_id": member_id},
                 timeout=config.timeout_sec
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -155,14 +155,14 @@ class GroupLeaveTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + f"/social/groups/{group_id}/leave"
         
         try:
-            response = httpx.post(
+            response = requests.post(
                 url,
                 json={"member_id": member_id},
                 timeout=config.timeout_sec
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -216,7 +216,7 @@ class GroupSendTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + f"/social/chat/groups/{group_id}/send"
         
         try:
-            response = httpx.post(
+            response = requests.post(
                 url,
                 json={
                     "from_id": from_id,
@@ -227,7 +227,7 @@ class GroupSendTool(ClawSocialBaseTool):
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -271,14 +271,14 @@ class GroupHistoryTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + f"/social/chat/groups/{group_id}/history"
         
         try:
-            response = httpx.get(
+            response = requests.get(
                 url,
                 params={"limit": limit},
                 timeout=config.timeout_sec
             )
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"
 
 
@@ -316,8 +316,8 @@ class GroupListTool(ClawSocialBaseTool):
         url = config.router_url.rstrip("/") + f"/social/groups/by-member/{member_id}"
         
         try:
-            response = httpx.get(url, timeout=config.timeout_sec)
+            response = requests.get(url, timeout=config.timeout_sec)
             response.raise_for_status()
             return json.dumps(response.json(), ensure_ascii=False, indent=2)
-        except httpx.HTTPError as exc:
+        except requests.RequestException as exc:
             return f"Error: {str(exc)}"

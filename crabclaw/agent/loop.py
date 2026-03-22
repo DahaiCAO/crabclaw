@@ -1,557 +1,423 @@
-"""Agent loop: core processing engine."""
+"""
+Agent I/O Processor (Formerly AgentLoop)
 
+This module has been refactored as part of the HAOS integration.
+Its role is no longer to be the agent's brain, but to act as a high-speed
+I/O processor, or a "spinal cord".
+
+It listens for external messages from the bus and translates them into
+Stimulus objects for the Sapiens mind. It also receives Action objects
+from the mind and sends them to the appropriate channels for execution.
+"""
 from __future__ import annotations
 
 import asyncio
-import json
-import re
-import weakref
-from contextlib import AsyncExitStack
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+import hashlib
+import os
+import time
+import uuid
+from typing import TYPE_CHECKING
 
+from clawlink.protocol.envelope import MessageEnvelope
+from clawlink.transport import HTTPTransport
 from loguru import logger
 
-from crabclaw.agent.context import ContextBuilder
-from crabclaw.agent.memory import MemoryStore
-from crabclaw.agent.subagent import SubagentManager
-from crabclaw.agent.tools.cron import CronTool
-from crabclaw.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
-from crabclaw.agent.tools.message import MessageTool
-from crabclaw.agent.tools.registry import ToolRegistry
-from crabclaw.agent.tools.shell import ExecTool
-from crabclaw.agent.tools.spawn import SpawnTool
-from crabclaw.agent.tools.web import WebFetchTool, WebSearchTool
 from crabclaw.bus.events import InboundMessage, OutboundMessage
-from crabclaw.bus.queue import MessageBus
-from crabclaw.providers.base import LLMProvider
-from crabclaw.session.manager import Session, SessionManager
+from crabclaw.user.manager import UserManager
 
 if TYPE_CHECKING:
-    from crabclaw.config.schema import ChannelsConfig, ExecToolConfig
-    from crabclaw.cron.service import CronService
-    from crabclaw.proactive.state import InternalState
-    from crabclaw.reflection.logger import AuditLogger
-    from crabclaw.templates.manager import PromptManager
-    from crabclaw.agent.tools.registry import ToolRegistry
-    from crabclaw.skills.manager import SkillManager
+    from crabclaw.bus.broadcaster import BroadcastManager
+    from crabclaw.bus.queue import MessageBus
+    from crabclaw.sapiens.agent import AgentSapiens
+    from crabclaw.sapiens.datatypes import Action
 
-
-class AgentLoop:
+class IOProcessor:
     """
-    The agent loop is core processing engine.
-
-    It:
-    1. Receives messages from the bus
-    2. Builds context with history, memory, skills
-    3. Calls LLM
-    4. Executes tool calls
-    5. Sends responses back
+    The I/O Processor for the Sapiens mind.
     """
-
-    _TOOL_RESULT_MAX_CHARS = 500
-
-    def __init__(
-        self,
-        bus: MessageBus,
-        provider: LLMProvider,
-        workspace: Path,
-        model: str | None = None,
-        max_iterations: int = 40,
-        temperature: float = 0.1,
-        max_tokens: int = 4096,
-        memory_window: int = 100,
-        reasoning_effort: str | None = None,
-        brave_api_key: str | None = None,
-        web_proxy: str | None = None,
-        exec_config: ExecToolConfig | None = None,
-        cron_service: CronService | None = None,
-        restrict_to_workspace: bool = False,
-        session_manager: SessionManager | None = None,
-        tool_registry: "ToolRegistry" | None = None,
-        skill_manager: "SkillManager" | None = None,
-        mcp_servers: dict | None = None,
-        channels_config: ChannelsConfig | None = None,
-        audit_logger: "AuditLogger" | None = None,
-        internal_state: "InternalState" | None = None,
-        prompt_manager: "PromptManager" | None = None,
-    ):
-        from crabclaw.config.schema import ExecToolConfig
+    def __init__(self, bus: "MessageBus", sapiens_core: "AgentSapiens", broadcast_manager: "BroadcastManager"):
         self.bus = bus
-        self.channels_config = channels_config
-        self.provider = provider
-        self.workspace = workspace
-        self.model = model or provider.get_default_model()
-        self.max_iterations = max_iterations
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.memory_window = memory_window
-        self.reasoning_effort = reasoning_effort
-        self.brave_api_key = brave_api_key
-        self.web_proxy = web_proxy
-        self.exec_config = exec_config or ExecToolConfig()
-        self.cron_service = cron_service
-        self.restrict_to_workspace = restrict_to_workspace
-        self.audit_logger = audit_logger
-        self.internal_state = internal_state
-        self.prompt_manager = prompt_manager
-        
-        # Initialize skill manager
-        from crabclaw.agent.skill_discovery import SkillManager
-        self.skill_manager = skill_manager or SkillManager(workspace, Path(__file__).parent.parent / "skills")
-
-        self.context = ContextBuilder(workspace)
-        self.sessions = session_manager or SessionManager(workspace)
-        self.tools = tool_registry or ToolRegistry()
-        self.subagents = SubagentManager(
-            provider=provider,
-            workspace=workspace,
-            bus=bus,
-            prompt_manager=self.prompt_manager,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            reasoning_effort=reasoning_effort,
-            brave_api_key=brave_api_key,
-            web_proxy=web_proxy,
-            exec_config=self.exec_config,
-            restrict_to_workspace=restrict_to_workspace,
-        )
-
+        self.sapiens_core = sapiens_core
+        self.broadcast_manager = broadcast_manager
         self._running = False
-        self._mcp_servers = mcp_servers or {}
-        self._mcp_stack: AsyncExitStack | None = None
-        self._mcp_connected = False
-        self._mcp_connecting = False
-        self._consolidating: set[str] = set()  # Session keys with consolidation in progress
-        self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
-        self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
-        self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
-        self._processing_lock = asyncio.Lock()
-        self._register_default_tools()
 
-    def _register_default_tools(self) -> None:
-        """Register the default set of tools."""
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-            path_append=self.exec_config.path_append,
-        ))
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
-        self.tools.register(WebFetchTool(proxy=self.web_proxy))
-        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
-        self.tools.register(SpawnTool(manager=self.subagents))
-        if self.cron_service:
-            self.tools.register(CronTool(self.cron_service))
-        
-        # Register ClawSocial tools
+        # Check if ClawSociety connection is enabled (Social mode)
         try:
-            from crabclaw.skills.clawsocial.manager import register_clawsocial_tools
-            register_clawsocial_tools(self.tools)
-        except ImportError as e:
-            logger.warning("Failed to register ClawSocial tools: %s", e)
-        
-        # Register internal tools
-        if self.skill_manager:
-            from crabclaw.agent.tools.internal import ReloadSkillsTool, SearchSkillsTool, DownloadSkillTool
-            self.tools.register(ReloadSkillsTool(self.skill_manager))
-            self.tools.register(SearchSkillsTool(self.skill_manager))
-            self.tools.register(DownloadSkillTool(self.skill_manager))
+            from crabclaw.config.loader import load_config
+            config = load_config()
+            self._clawlink_enabled = getattr(config, "clawsociety_enabled", False)
+            self._discovery_url = getattr(config, "clawsocial_url", "http://127.0.0.1:8000")
+        except Exception:
+            self._clawlink_enabled = False
+            self._discovery_url = "http://127.0.0.1:8000"
+            self._workspace = None
+        else:
+            self._workspace = getattr(config, "workspace_path", None)
 
-    async def _connect_mcp(self) -> None:
-        """Connect to configured MCP servers (one-time, lazy)."""
-        if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
-            return
-        self._mcp_connecting = True
-        from crabclaw.agent.tools.mcp import connect_mcp_servers
-        try:
-            self._mcp_stack = AsyncExitStack()
-            await self._mcp_stack.__aenter__()
-            await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
-            self._mcp_connected = True
-        except Exception as e:
-            logger.error("Failed to connect MCP servers (will retry next message): {}", e)
-            if self._mcp_stack:
-                try:
-                    await self._mcp_stack.aclose()
-                except Exception:
-                    pass
-                self._mcp_stack = None
-        finally:
-            self._mcp_connecting = False
+        # Allow env var override for backward compatibility
+        env_enabled = os.getenv("SAPIENS_CLAWLINK_ENABLED")
+        if env_enabled is not None:
+            self._clawlink_enabled = env_enabled not in {"0", "false", "False"}
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
-        """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron"):
-            if tool := self.tools.get(name):
-                if hasattr(tool, "set_context"):
-                    tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+        self._clawlink_transport: HTTPTransport | None = None
+        self._user_manager: UserManager | None = None
+        if self._workspace:
+            try:
+                self._user_manager = UserManager(self._workspace)
+            except Exception:
+                self._user_manager = None
+        self._recent_outbound: dict[str, float] = {}
+        self._recent_broadcast_ids: dict[str, float] = {}
+        self._scope_origin: dict[str, tuple[str, str, str, float]] = {}
+        self._my_did = getattr(
+            getattr(self.sapiens_core, "sociology", None),
+            "did",
+            f"did:claw:agent:{self.sapiens_core.id}",
+        )
+        self._clawlink_host = os.getenv("CLAWLINK_AGENT_HOST", "127.0.0.1")
+        self._clawlink_port = self._derive_listen_port()
+        if os.getenv("CLAWLINK_DISCOVERY_URL") or os.getenv("CLAWSOCIETY_URL"):
+            self._discovery_url = os.getenv("CLAWLINK_DISCOVERY_URL", os.getenv("CLAWSOCIETY_URL", self._discovery_url))
 
-    @staticmethod
-    def _strip_think(text: str | None) -> str | None:
-        """Remove blocks that some models embed in content."""
-        if not text:
-            return None
-        out = text
-        out = re.sub(r"<think>[\s\S]*?</think>", "", out, flags=re.IGNORECASE)
-        out = re.sub(r"<thinking>[\s\S]*?</thinking>", "", out, flags=re.IGNORECASE)
-        out = re.sub(r"<analysis>[\s\S]*?</analysis>", "", out, flags=re.IGNORECASE)
-        out = re.sub(r"```(?:thinking|analysis)[\s\S]*?```", "", out, flags=re.IGNORECASE)
-        return out.strip() or None
-
-    @staticmethod
-    def _tool_hint(tool_calls: list) -> str:
-        """Format tool calls as concise hint, e.g. 'web_search("query")'."""
-        def _fmt(tc):
-            args = (tc.arguments[0] if isinstance(tc.arguments, list) else tc.arguments) or {}
-            val = next(iter(args.values()), None) if isinstance(args, dict) else None
-            if not isinstance(val, str):
-                return tc.name
-            return f'{tc.name}("{val[:40]}...")' if len(val) > 40 else f'{tc.name}("{val}")'
-        return ", ".join(_fmt(tc) for tc in tool_calls)
-
-    async def _run_agent_loop(
-        self,
-        initial_messages: list[dict],
-        session_key: str,
-        prompt_manager: "PromptManager",
-        on_progress: Callable[..., Awaitable[None]] | None = None,
-    ) -> tuple[str | None, list[str], list[dict]]:
-        """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
-        messages = initial_messages
-        iteration = 0
-        final_content = None
-        tools_used: list[str] = []
-
-        while iteration < self.max_iterations:
-            iteration += 1
-
-            llm_call_params = {
-                "model": self.model,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                "reasoning_effort": self.reasoning_effort,
-                "tools_enabled": self.tools.get_definitions() is not None
-            }
-            if self.audit_logger:
-                self.audit_logger.log("LLMCall_Start", "reactive", {"session_key": session_key, "params": llm_call_params, "iteration": iteration})
-
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                reasoning_effort=self.reasoning_effort,
-            )
-
-            if self.audit_logger:
-                self.audit_logger.log("LLMCall_End", "reactive", {"session_key": session_key, "has_tool_calls": response.has_tool_calls, "finish_reason": response.finish_reason, "iteration": iteration})
-
-            if response.has_tool_calls:
-                if on_progress:
-                    clean = self._strip_think(response.content)
-                    if clean:
-                        await on_progress(clean)
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
-
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-
-                for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info("Tool call: %s(%s)", tool_call.name, args_str[:200])
-                    
-                    if self.audit_logger:
-                        self.audit_logger.log("ToolCall_Start", "reactive", {"session_key": session_key, "tool_name": tool_call.name, "arguments": tool_call.arguments})
-
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
-
-                    if self.audit_logger:
-                        # Truncate result to avoid excessively large log entries
-                        result_preview = str(result)[:500]
-                        self.audit_logger.log("ToolCall_End", "reactive", {"session_key": session_key, "tool_name": tool_call.name, "result_preview": result_preview})
-
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
-                    )
-            else:
-                clean = self._strip_think(response.content)
-                if response.finish_reason == "error":
-                    logger.error("LLM returned error: %s", (clean or "")[:200])
-                    final_content = clean or "Sorry, I encountered an error calling the AI model."
-                    break
-                messages = self.context.add_assistant_message(
-                    messages, clean, reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-                final_content = clean
-                break
-
-        if final_content is None and iteration >= self.max_iterations:
-            logger.warning("Max iterations (%s) reached", self.max_iterations)
-            final_content = (
-                f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
-                "without completing the task. You can try breaking the task into smaller steps."
-            )
-
-        return final_content, tools_used, messages
-
-    async def run(self) -> None:
-        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
+    async def run(self):
+        """
+        Runs the I/O loop, constantly bridging the external world and the Sapiens mind.
+        """
         self._running = True
-        await self._connect_mcp()
-        logger.info("Agent loop started")
+        logger.info("I/O Processor started. Globally subscribing to BroadcastManager.")
+
+        # Globally subscribe to receive messages from all scopes.
+        broadcast_queue = await self.broadcast_manager.subscribe_global()
+
+        await self._start_clawlink_listener()
+
+        # Create three concurrent tasks:
+        # 1. Listen for broadcast messages (like user chats)
+        # 2. Listen for actions from the Sapiens mind to execute
+        # 3. (Still listen to the old bus for backward compatibility or specific commands)
+        broadcast_listener_task = asyncio.create_task(self._listen_for_broadcasts(broadcast_queue))
+        outbound_task = asyncio.create_task(self._listen_for_outbound_actions())
+        inbound_task = asyncio.create_task(self._listen_for_inbound()) # Keep this for now
+
+        try:
+            await asyncio.gather(broadcast_listener_task, outbound_task, inbound_task)
+        finally:
+            await self.broadcast_manager.unsubscribe_global(broadcast_queue)
+
+    async def stop(self):
+        """
+        Stops the I/O loop.
+        """
+        self._running = False
+        if self._clawlink_transport:
+            # Check if stop method exists, otherwise ignore
+            if hasattr(self._clawlink_transport, "stop"):
+                await self._clawlink_transport.stop()
+        logger.info("I/O Processor stopped.")
+
+    def _derive_listen_port(self) -> int:
+        base = int(os.getenv("CLAWLINK_AGENT_PORT_BASE", "19000"))
+        offset = sum(ord(ch) for ch in str(self.sapiens_core.id)) % 1000
+        return base + offset
+
+    async def _start_clawlink_listener(self):
+        if not self._clawlink_enabled:
+            return
+        try:
+            self._clawlink_transport = HTTPTransport(
+                my_did=self._my_did,
+                host=self._clawlink_host,
+                port=self._clawlink_port,
+                discovery_url=self._discovery_url,
+            )
+            await self._clawlink_transport.start_listening(self._handle_clawlink_envelope)
+            logger.info(
+                f"[IO] ClawLink listener ready for {self._my_did} on {self._clawlink_host}:{self._clawlink_port}"
+            )
+        except Exception:
+            self._clawlink_transport = None
+            logger.exception("[IO] Failed to start ClawLink listener.")
+
+    async def _handle_clawlink_envelope(self, envelope: MessageEnvelope):
+        self.sapiens_core.route_protocol_envelope(envelope)
+        payload = envelope.content or {}
+        message = str(payload.get("message", payload))
+        inbound_msg = InboundMessage(
+            channel="agent",
+            sender_id=envelope.from_agent,
+            chat_id=f"agent:{envelope.from_agent}",
+            content=message,
+            metadata={
+                "intent": envelope.intent,
+                "trace_id": envelope.trace_id,
+                "message_id": envelope.id,
+            },
+        )
+        await self.bus.publish_inbound(inbound_msg)
+
+    async def _listen_for_broadcasts(self, queue: asyncio.Queue):
+        """Listens for broadcast messages and converts them to Stimuli."""
+        from crabclaw.sapiens.datatypes import Stimulus
 
         while self._running:
             try:
-                msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
+                msg = await queue.get()
+                logger.debug(f"[IO] Received broadcast message: {msg}")
+
+                if msg.get("type") == "user_message":
+                    scope = str(msg.get("scope", ""))
+                    event_id = str(msg.get("event_id", "")).strip()
+                    if event_id and self._is_duplicate_broadcast(event_id):
+                        continue
+                    source_channel = str(msg.get("source_channel", ""))
+                    source_chat = str(msg.get("chat_id", ""))
+                    sender_id = str(msg.get("sender_id", ""))
+                    if scope and source_channel and source_chat:
+                        self._scope_origin[scope] = (source_channel, source_chat, sender_id, time.time())
+                    # Convert the broadcast message into a mental Stimulus
+                    stimulus = Stimulus(
+                        source=f"{msg.get('source_channel', 'unknown')}:{msg.get('chat_id', 'unknown')}",
+                        type="message",
+                        content=msg.get("content", ""),
+                        intensity=0.8, # Natural intensity for a direct message
+                        urgency=0.7,   # Slightly higher urgency as it's a real-time chat
+                        timestamp=msg.get("timestamp", 0),
+                        metadata=msg
+                    )
+                    self.sapiens_core.psychology.workspace.add_stimulus(stimulus)
+
+            except Exception:
+                logger.exception("Error in I/O broadcast listener.")
+
+    async def _listen_for_inbound(self):
+        """Listens for messages from the outside world and converts them to Stimuli."""
+        from crabclaw.sapiens.datatypes import Stimulus
+
+        while self._running:
+            try:
+                msg: InboundMessage = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
+                logger.debug(f"[IO] Received InboundMessage from bus: {msg.content[:50]}")
+                if self._is_inbound_echo(msg):
+                    continue
+
+                scope = self._resolve_scope_from_inbound(msg)
+                if scope:
+                    self._scope_origin[scope] = (msg.channel, msg.chat_id, msg.sender_id, time.time())
+
+                # Convert the external message into a mental Stimulus
+                # Natural intensity and urgency for a standard stimulus
+                stimulus = Stimulus(
+                    source=f"{msg.channel}:{msg.chat_id}",
+                    type="message",
+                    content=msg.content,
+                    intensity=0.8,
+                    urgency=0.5,
+                    timestamp=msg.timestamp.timestamp(),
+                )
+
+                # Send the stimulus to the mind's perception system
+                # In a more advanced version, this would go to a PerceptionSystem component.
+                self.sapiens_core.psychology.workspace.add_stimulus(stimulus)
+
             except asyncio.TimeoutError:
                 continue
-
-            if msg.content.strip().lower() == "/stop":
-                await self._handle_stop(msg)
-            else:
-                task = asyncio.create_task(self._dispatch(msg))
-                self._active_tasks.setdefault(msg.session_key, []).append(task)
-                task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
-
-    async def _handle_stop(self, msg: InboundMessage) -> None:
-        """Cancel all active tasks and subagents for session."""
-        tasks = self._active_tasks.pop(msg.session_key, [])
-        cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
-        for t in tasks:
-            try:
-                await t
-            except (asyncio.CancelledError, Exception):
-                pass
-        sub_cancelled = await self.subagents.cancel_by_session(msg.session_key)
-        total = cancelled + sub_cancelled
-        content = f"Stopped {total} task(s)." if total else "No active task to stop."
-        await self.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
-        ))
-
-    async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message under the global lock."""
-        async with self._processing_lock:
-            if self.audit_logger:
-                self.audit_logger.log("InboundMessage", "reactive", {"session_key": msg.session_key, "content": msg.content, "channel": msg.channel, "sender_id": msg.sender_id})
-            try:
-                response = await self._process_message(msg)
-                if response is not None:
-                    if self.audit_logger:
-                        self.audit_logger.log("OutboundMessage", "reactive", {"session_key": msg.session_key, "content": response.content, "channel": response.channel, "chat_id": response.chat_id})
-                    await self.bus.publish_outbound(response)
-                elif msg.channel == "cli":
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel, chat_id=msg.chat_id,
-                        content="", metadata=msg.metadata or {},
-                    ))
-            except asyncio.CancelledError:
-                logger.info("Task cancelled for session %s", msg.session_key)
-                raise
             except Exception:
-                logger.exception("Error processing message for session %s", msg.session_key)
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content="Sorry, I encountered an error.",
-                ))
+                logger.exception("Error in I/O inbound listener.")
 
-    async def close_mcp(self) -> None:
-        """Close MCP connections."""
-        if self._mcp_stack:
+    async def _listen_for_outbound_actions(self):
+        """Listens for Action objects decided by the Sapiens mind and executes them."""
+        while self._running:
             try:
-                await self._mcp_stack.aclose()
-            except (RuntimeError, BaseExceptionGroup):
-                pass
-            self._mcp_stack = None
+                # This requires a new queue in the Sapiens core to push actions to.
+                action: Action = await asyncio.wait_for(self.sapiens_core.get_outbound_action(), timeout=1.0)
+                logger.info(f"[IO] Received Action from Sapiens mind: {action.name}, recipient: {action.params.get('recipient', 'N/A')}")
 
-    def stop(self) -> None:
-        """Stop the agent loop."""
-        self._running = False
-        logger.info("Agent loop stopping")
+                # For now, we only handle 'send_message' actions.
+                if action.name == "send_message":
+                    content = action.params.get("content", "")
+                    reply_scope = (
+                        action.params.get("scope")
+                        or action.params.get("user_id")
+                        or action.params.get("scope_user_id")
+                    )
+                    request_id = (
+                        action.params.get("request_id")
+                        or ((action.params.get("metadata") or {}).get("request_id"))
+                        or ""
+                    )
+                    recipient = str(action.params.get("recipient", ""))
+                    source_channel = action.params.get("source_channel") or ""
+                    source_chat_id = action.params.get("source_chat_id") or ""
 
-    def stop(self) -> None:
-        """Stop the agent loop."""
-        self._running = False
-        logger.info("Agent loop stopping")
+                    if not content:
+                        continue
 
-    async def _process_message(
-        self,
-        msg: InboundMessage,
-        session_key: str | None = None,
-        on_progress: Callable[[str], Awaitable[None]] | None = None,
-        prompt_manager_override: "PromptManager" | None = None,
-    ) -> OutboundMessage | None:
-        """Process a single inbound message and return response."""
-        if msg.channel == "system":
-            channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
-                                else ("cli", msg.chat_id))
-            logger.info("Processing system message from %s", msg.sender_id)
-            key = f"{channel}:{chat_id}"
-            session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
-            history = session.get_history(max_messages=self.memory_window)
-            messages = self.context.build_messages(
-                history=history,
-                current_message=msg.content, channel=channel, chat_id=chat_id,
-            )
-            final_content, _, all_msgs = await self._run_agent_loop(
-            messages, key, prompt_manager_override or self.prompt_manager
-        )
-            self._save_turn(session, all_msgs, 1 + len(history))
-            self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+                    if not reply_scope and recipient.startswith("user:"):
+                        parts = recipient.split(":", 2)
+                        if len(parts) >= 2:
+                            reply_scope = parts[1]
 
-        preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-        logger.info("Processing message from %s:%s: %s", msg.channel, msg.sender_id, preview)
+                    if reply_scope:
+                        await self.broadcast_manager.publish(
+                            scope=reply_scope,
+                            message={
+                                "type": "agent_reply",
+                                "content": content,
+                                "timestamp": time.time(),
+                                "request_id": request_id,
+                            },
+                        )
 
-        key = session_key or msg.session_key
-        session = self.sessions.get_or_create(key)
+                    outbound_targets = self._collect_outbound_targets(
+                        reply_scope=reply_scope,
+                        recipient=recipient,
+                        source_channel=source_channel,
+                        source_chat_id=source_chat_id,
+                    )
 
-        cmd = msg.content.strip().lower()
-        if cmd == "/new":
-            lock = self._consolidation_locks.setdefault(session.key, asyncio.Lock())
-            self._consolidating.add(session.key)
-            try:
-                async with lock:
-                    snapshot = session.messages[session.last_consolidated:]
-                    if snapshot:
-                        temp = Session(key=session.key)
-                        temp.messages = list(snapshot)
-                        if not await self._consolidate_memory(temp, archive_all=True):
-                            return OutboundMessage(
-                                channel=msg.channel, chat_id=msg.chat_id,
-                                content="Memory archival failed, session not cleared. Please try again.",
-                            )
-            except Exception:
-                logger.exception("/new archival failed for {}", session.key)
-                return OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content="Memory archival failed, session not cleared. Please try again.",
-                )
-            finally:
-                self._consolidating.discard(session.key)
+                    sent = 0
+                    for target_channel, target_chat_id in outbound_targets:
+                        event_id = self._make_event_id(
+                            "out",
+                            {
+                                "scope": reply_scope or "",
+                                "channel": target_channel,
+                                "chat_id": target_chat_id,
+                                "content": content,
+                                "request_id": request_id,
+                            },
+                        )
+                        self._remember_outbound(target_channel, target_chat_id, content)
+                        outbound = OutboundMessage(
+                            channel=target_channel,
+                            chat_id=target_chat_id,
+                            content=content,
+                            metadata={
+                                "scope": reply_scope or "",
+                                "request_id": request_id,
+                                "fanout": True,
+                                "source": "sapiens",
+                                "event_id": event_id,
+                            },
+                        )
+                        await self.bus.publish_outbound(outbound)
+                        sent += 1
 
-            session.clear()
-            self.sessions.save(session)
-            self.sessions.invalidate(session.key)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started.")
-        if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🦀 Crabclaw commands:\n/new - Start a new conversation\n/stop - Stop current task\n/help - Show available commands")
+                    if sent == 0 and not reply_scope:
+                        logger.error(f"[IO] Cannot route outbound message, missing scope and recipient route. Action: {action}")
+                else:
+                    # In the full architecture, this would delegate to the ActionExecutor
+                    logger.warning(f"[IO] Don't know how to execute action: {action.name}")
 
-        unconsolidated = len(session.messages) - session.last_consolidated
-        if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
-            self._consolidating.add(session.key)
-            lock = self._consolidation_locks.setdefault(session.key, asyncio.Lock())
-
-            async def _consolidate_and_unlock():
-                try:
-                    async with lock:
-                        await self._consolidate_memory(session)
-                finally:
-                    self._consolidating.discard(session.key)
-                    _task = asyncio.current_task()
-                    if _task is not None:
-                        self._consolidation_tasks.discard(_task)
-
-            _task = asyncio.create_task(_consolidate_and_unlock())
-            self._consolidation_tasks.add(_task)
-
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
-        if message_tool := self.tools.get("message"):
-            if isinstance(message_tool, MessageTool):
-                message_tool.start_turn()
-
-        history = session.get_history(max_messages=self.memory_window)
-        initial_messages = self.context.build_messages(
-            history=history,
-            current_message=msg.content,
-            media=msg.media if msg.media else None,
-            channel=msg.channel, chat_id=msg.chat_id,
-        )
-
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
-            meta = dict(msg.metadata or {})
-            meta["_progress"] = True
-            meta["_tool_hint"] = tool_hint
-            await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
-            ))
-
-        final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, key, prompt_manager_override or self.prompt_manager, on_progress=on_progress or _bus_progress
-        )
-
-        if final_content is None:
-            from crabclaw.i18n.translator import translate
-            final_content = translate("agent.empty_response")
-
-        self._save_turn(session, all_msgs, 1 + len(history))
-        self.sessions.save(session)
-
-        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
-            return None
-
-        preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
-        logger.info("Response to %s:%s: %s", msg.channel, msg.sender_id, preview)
-        return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
-        )
-
-    def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
-        """Save a turn to session history."""
-        for msg in messages[skip:]:
-            if not isinstance(msg, dict):
+            except asyncio.TimeoutError:
                 continue
-            role = str(msg.get("role", ""))
-            content = msg.get("content", "")
-            if not isinstance(content, str):
-                content = str(content)
-            extras = {k: v for k, v in msg.items() if k not in {"role", "content"}}
-            session.add_message(role, content, **extras)
+            except Exception:
+                logger.exception("Error in I/O outbound listener.")
 
-    async def process_direct(
+    def _collect_outbound_targets(
         self,
+        reply_scope: str | None,
+        recipient: str,
+        source_channel: str,
+        source_chat_id: str,
+    ) -> list[tuple[str, str]]:
+        outbound_targets: list[tuple[str, str]] = []
+        if reply_scope and self._user_manager:
+            mappings = self._user_manager.list_identity_mappings(reply_scope)
+            origin = self._scope_origin.get(reply_scope)
+            for mapping in mappings:
+                ch = str(mapping.get("channel", "")).strip()
+                external_id = str(mapping.get("external_id", "")).strip()
+                if ch and external_id:
+                    if origin and ch == origin[0] and external_id == origin[1]:
+                        continue
+                    outbound_targets.append((ch, external_id))
+            if not outbound_targets and origin:
+                outbound_targets.append((origin[0], origin[1]))
+            return outbound_targets
+        if ":" in recipient and not recipient.startswith("did:"):
+            ch, target_chat = recipient.split(":", 1)
+            if ch and target_chat:
+                return [(ch, target_chat)]
+        if source_channel and source_chat_id:
+            return [(source_channel, source_chat_id)]
+        return outbound_targets
+
+    @staticmethod
+    def _make_event_id(prefix: str, payload: dict) -> str:
+        raw = str(sorted(payload.items()))
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}-{digest}"
+
+    def _remember_outbound(self, channel: str, chat_id: str, content: str) -> None:
+        key = self._fingerprint(channel, chat_id, content)
+        now = time.time()
+        self._recent_outbound[key] = now
+        self._prune_recent(self._recent_outbound, ttl_s=20.0)
+
+    def _is_inbound_echo(self, msg: InboundMessage) -> bool:
+        key = self._fingerprint(msg.channel, msg.chat_id, msg.content)
+        now = time.time()
+        ts = self._recent_outbound.get(key)
+        if ts is None:
+            return False
+        if now - ts > 20.0:
+            self._recent_outbound.pop(key, None)
+            return False
+        return True
+
+    @staticmethod
+    def _fingerprint(channel: str, chat_id: str, content: str) -> str:
+        text = f"{channel}|{chat_id}|{content.strip()}"
+        return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+    def _is_duplicate_broadcast(self, event_id: str) -> bool:
+        now = time.time()
+        ts = self._recent_broadcast_ids.get(event_id)
+        self._prune_recent(self._recent_broadcast_ids, ttl_s=120.0)
+        if ts and now - ts <= 120.0:
+            return True
+        self._recent_broadcast_ids[event_id] = now
+        return False
+
+    @staticmethod
+    def _prune_recent(cache: dict[str, float], ttl_s: float) -> None:
+        now = time.time()
+        stale = [k for k, t in cache.items() if now - t > ttl_s]
+        for key in stale:
+            cache.pop(key, None)
+
+    def _resolve_scope_from_inbound(self, msg: InboundMessage) -> str:
+        metadata = msg.metadata or {}
+        scope = str(metadata.get("user_id") or metadata.get("scope_user_id") or "").strip()
+        if scope:
+            return scope
+        if self._user_manager:
+            by_sender = self._user_manager.resolve_user_by_identity(msg.channel, msg.sender_id)
+            if by_sender:
+                return by_sender
+            by_chat = self._user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
+            if by_chat:
+                return by_chat
+        return ""
+
+    async def _send_agent_message(
+        self,
+        to_did: str,
         content: str,
-        session_key: str,
-        channel: str = "direct",
-        chat_id: str = "user",
-        on_progress: Callable[[str], Awaitable[None]] | None = None,
-        prompt_manager_override: "PromptManager" | None = None,
-    ) -> OutboundMessage | None:
-        """Process a message directly, bypassing the bus. Used for cron, heartbeat, and simulation."""
-        msg = InboundMessage(
-            content=content,
-            channel=channel,
-            sender_id=chat_id,
-            chat_id=chat_id,
-            session_key_override=session_key,
+        intent: str = "task.propose",
+        metadata: dict | None = None,
+    ) -> bool:
+        if not self._clawlink_transport:
+            return False
+        envelope = MessageEnvelope(
+            from_agent=self._my_did,
+            to_agent=to_did,
+            intent=intent,
+            content={
+                "message": content,
+                "metadata": metadata or {},
+            },
+            trace_id=str(uuid.uuid4()),
         )
-        return await self._process_message(
-            msg, session_key=session_key, on_progress=on_progress, prompt_manager_override=prompt_manager_override
-        )
+        return await self._clawlink_transport.send(envelope)

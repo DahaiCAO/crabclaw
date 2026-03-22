@@ -1,13 +1,15 @@
 """Base channel interface for chat platforms."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from crabclaw.bus.events import InboundMessage, OutboundMessage
 from crabclaw.bus.queue import MessageBus
-from crabclaw.channels.security import AccessControl, RateLimitConfig
 
 
 class BaseChannel(ABC):
@@ -15,10 +17,12 @@ class BaseChannel(ABC):
     Abstract base class for chat channel implementations.
 
     Each channel (Telegram, Discord, etc.) should implement this interface
-    to integrate with the Crabclaw message bus.
+    to integrate with the nanobot message bus.
     """
 
     name: str = "base"
+    display_name: str = "Base"
+    transcription_api_key: str = ""
 
     def __init__(self, config: Any, bus: MessageBus):
         """
@@ -32,16 +36,18 @@ class BaseChannel(ABC):
         self.bus = bus
         self._running = False
 
-        # Initialize access control with rate limiting
-        allow_from = getattr(config, "allow_from", [])
-        rate_limit_config = RateLimitConfig(
-            max_requests_per_minute=getattr(config, "rate_limit_per_minute", 60),
-            max_requests_per_hour=getattr(config, "rate_limit_per_hour", 1000),
-        )
-        self._access_control = AccessControl(
-            allow_from=allow_from,
-            rate_limit_config=rate_limit_config,
-        )
+    async def transcribe_audio(self, file_path: str | Path) -> str:
+        """Transcribe an audio file via Groq Whisper. Returns empty string on failure."""
+        if not self.transcription_api_key:
+            return ""
+        try:
+            from crabclaw.providers.transcription import GroqTranscriptionProvider
+
+            provider = GroqTranscriptionProvider(api_key=self.transcription_api_key)
+            return await provider.transcribe(file_path)
+        except Exception as e:
+            logger.warning("{}: audio transcription failed: {}", self.name, e)
+            return ""
 
     @abstractmethod
     async def start(self) -> None:
@@ -72,10 +78,40 @@ class BaseChannel(ABC):
 
     def is_allowed(self, sender_id: str) -> bool:
         """Check if *sender_id* is permitted.  Empty list → deny all; ``"*"`` → allow all."""
-        allowed, reason = self._access_control.is_allowed(sender_id)
-        if not allowed and reason:
-            logger.warning(f"{self.name}: Access denied for {sender_id}: {reason}")
-        return allowed
+        allow_list = getattr(self.config, "allow_from", [])
+        if not allow_list:
+            logger.warning("{}: allow_from is empty — all access denied", self.name)
+            return False
+        if "*" in allow_list:
+            return True
+        return str(sender_id) in allow_list
+
+    def _resolve_user_scope(
+        self,
+        sender_id: str,
+        chat_id: str,
+        metadata: dict[str, Any] | None,
+    ) -> str | None:
+        meta = metadata or {}
+        explicit = (
+            meta.get("user_id")
+            or meta.get("mapped_user_id")
+            or meta.get("scope_user_id")
+        )
+        if explicit:
+            return str(explicit)
+        try:
+            from crabclaw.config.loader import load_config
+            from crabclaw.user.manager import UserManager
+
+            config = load_config()
+            manager = UserManager(config.workspace_path)
+            resolved = manager.resolve_user_by_identity(self.name, str(sender_id))
+            if resolved:
+                return resolved
+            return manager.resolve_user_by_identity(self.name, str(chat_id))
+        except Exception:
+            return None
 
     async def _handle_message(
         self,
@@ -99,24 +135,22 @@ class BaseChannel(ABC):
             metadata: Optional channel-specific metadata.
             session_key: Optional session key override (e.g. thread-scoped sessions).
         """
-        # Check access control
-        allowed, reason = self._access_control.is_allowed(sender_id)
-        if not allowed:
+        if not self.is_allowed(sender_id):
             logger.warning(
-                "Access denied for sender {} on channel {}: {}. "
+                "Access denied for sender {} on channel {}. "
                 "Add them to allowFrom list in config to grant access.",
-                sender_id, self.name, reason,
+                sender_id, self.name,
             )
             return
 
-        # Check rate limiting
-        rate_allowed, rate_reason = await self._access_control.check_rate_limit(sender_id)
-        if not rate_allowed:
-            logger.warning(
-                "Rate limit exceeded for sender {} on channel {}: {}",
-                sender_id, self.name, rate_reason,
-            )
-            return
+        meta = metadata or {}
+        resolved_user = self._resolve_user_scope(sender_id, chat_id, meta)
+        if resolved_user:
+            meta["user_id"] = resolved_user
+            if session_key is None:
+                session_key = f"user:{resolved_user}:{self.name}:{chat_id}"
+            elif not str(session_key).startswith("user:"):
+                session_key = f"user:{resolved_user}:{session_key}"
 
         msg = InboundMessage(
             channel=self.name,
@@ -124,21 +158,18 @@ class BaseChannel(ABC):
             chat_id=str(chat_id),
             content=content,
             media=media or [],
-            metadata=metadata or {},
+            metadata=meta,
             session_key_override=session_key,
         )
 
         await self.bus.publish_inbound(msg)
 
+    @classmethod
+    def default_config(cls) -> dict[str, Any]:
+        """Return default config for onboard. Override in plugins to auto-populate config.json."""
+        return {"enabled": False}
+
     @property
     def is_running(self) -> bool:
         """Check if the channel is running."""
         return self._running
-
-    def get_security_stats(self) -> dict[str, Any]:
-        """Get security statistics for this channel."""
-        return self._access_control.get_stats()
-
-    def reset_rate_limit(self, sender_id: str | None = None) -> None:
-        """Reset rate limiter for a specific sender or all senders."""
-        self._access_control.rate_limiter.reset(sender_id)

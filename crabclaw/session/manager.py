@@ -79,20 +79,40 @@ class SessionManager:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
+        self.user_sessions_root = ensure_dir(self.workspace / "sessions_by_user")
         self.legacy_sessions_dir = Path.home() / ".crabclaw" / "sessions"
         self._cache: dict[str, Session] = {}
 
-    def _get_session_path(self, key: str) -> Path:
+    @staticmethod
+    def _normalize_user_scope(user_scope: str | None) -> str | None:
+        if user_scope is None:
+            return None
+        value = str(user_scope).strip()
+        return value or None
+
+    def _get_user_sessions_dir(self, user_scope: str) -> Path:
+        return ensure_dir(self.user_sessions_root / safe_filename(user_scope))
+
+    def _cache_key(self, key: str, user_scope: str | None = None) -> str:
+        normalized = self._normalize_user_scope(user_scope)
+        if normalized is None:
+            return key
+        return f"{normalized}::{key}"
+
+    def _get_session_path(self, key: str, user_scope: str | None = None) -> Path:
         """Get the file path for a session."""
         safe_key = safe_filename(key.replace(":", "_"))
-        return self.sessions_dir / f"{safe_key}.jsonl"
+        normalized = self._normalize_user_scope(user_scope)
+        if normalized is None:
+            return self.sessions_dir / f"{safe_key}.jsonl"
+        return self._get_user_sessions_dir(normalized) / f"{safe_key}.jsonl"
 
     def _get_legacy_session_path(self, key: str) -> Path:
         """Legacy global session path (~/.crabclaw/sessions/)."""
         safe_key = safe_filename(key.replace(":", "_"))
         return self.legacy_sessions_dir / f"{safe_key}.jsonl"
 
-    def get_or_create(self, key: str) -> Session:
+    def get_or_create(self, key: str, user_scope: str | None = None) -> Session:
         """
         Get an existing session or create a new one.
 
@@ -102,27 +122,32 @@ class SessionManager:
         Returns:
             The session.
         """
-        if key in self._cache:
-            return self._cache[key]
+        cache_key = self._cache_key(key, user_scope)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        session = self._load(key)
+        session = self._load(key, user_scope=user_scope)
         if session is None:
             session = Session(key=key)
+            if user_scope:
+                session.metadata["user_scope"] = user_scope
 
-        self._cache[key] = session
+        self._cache[cache_key] = session
         return session
 
-    def _load(self, key: str) -> Session | None:
+    def _load(self, key: str, user_scope: str | None = None) -> Session | None:
         """Load a session from disk."""
-        path = self._get_session_path(key)
+        path = self._get_session_path(key, user_scope=user_scope)
         if not path.exists():
-            legacy_path = self._get_legacy_session_path(key)
-            if legacy_path.exists():
-                try:
-                    shutil.move(str(legacy_path), str(path))
-                    logger.info("Migrated session {} from legacy path", key)
-                except Exception:
-                    logger.exception("Failed to migrate session {}", key)
+            normalized_scope = self._normalize_user_scope(user_scope)
+            if normalized_scope is None:
+                legacy_path = self._get_legacy_session_path(key)
+                if legacy_path.exists():
+                    try:
+                        shutil.move(str(legacy_path), str(path))
+                        logger.info("Migrated session {} from legacy path", key)
+                    except Exception:
+                        logger.exception("Failed to migrate session {}", key)
 
         if not path.exists():
             return None
@@ -161,7 +186,8 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""
-        path = self._get_session_path(session.key)
+        user_scope = session.metadata.get("user_scope")
+        path = self._get_session_path(session.key, user_scope=user_scope)
 
         with open(path, "w", encoding="utf-8") as f:
             metadata_line = {
@@ -176,7 +202,7 @@ class SessionManager:
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
-        self._cache[session.key] = session
+        self._cache[self._cache_key(session.key, user_scope)] = session
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""
@@ -191,7 +217,12 @@ class SessionManager:
         """
         sessions = []
 
-        for path in self.sessions_dir.glob("*.jsonl"):
+        candidates = list(self.sessions_dir.glob("*.jsonl"))
+        for user_dir in self.user_sessions_root.glob("*"):
+            if user_dir.is_dir():
+                candidates.extend(user_dir.glob("*.jsonl"))
+
+        for path in candidates:
             try:
                 # Read just the metadata line
                 with open(path, encoding="utf-8") as f:
@@ -200,8 +231,12 @@ class SessionManager:
                         data = json.loads(first_line)
                         if data.get("_type") == "metadata":
                             key = data.get("key") or path.stem.replace("_", ":", 1)
+                            user_scope = ""
+                            if path.parent != self.sessions_dir:
+                                user_scope = path.parent.name
                             sessions.append({
                                 "key": key,
+                                "user_scope": user_scope,
                                 "created_at": data.get("created_at"),
                                 "updated_at": data.get("updated_at"),
                                 "path": str(path)
