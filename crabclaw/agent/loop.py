@@ -91,6 +91,9 @@ class IOProcessor:
         if os.getenv("CLAWLINK_DISCOVERY_URL") or os.getenv("CLAWSOCIETY_URL"):
             self._discovery_url = os.getenv("CLAWLINK_DISCOVERY_URL", os.getenv("CLAWSOCIETY_URL", self._discovery_url))
 
+        # Ensure the outbound action queue is properly initialized for async operations
+        self.sapiens_core.outbound_action_queue = asyncio.Queue()
+
     async def run(self):
         """
         Runs the I/O loop, constantly bridging the external world and the Sapiens mind.
@@ -241,33 +244,29 @@ class IOProcessor:
         while self._running:
             try:
                 # This requires a new queue in the Sapiens core to push actions to.
-                action: Action = await asyncio.wait_for(self.sapiens_core.get_outbound_action(), timeout=1.0)
+                action: Action = await self.sapiens_core.get_outbound_action()
                 logger.info(f"[IO] Received Action from Sapiens mind: {action.name}, recipient: {action.params.get('recipient', 'N/A')}")
 
                 # For now, we only handle 'send_message' actions.
                 if action.name == "send_message":
                     content = action.params.get("content", "")
+                    recipient = str(action.params.get("recipient", ""))
                     reply_scope = (
                         action.params.get("scope")
                         or action.params.get("user_id")
                         or action.params.get("scope_user_id")
+                        or recipient  # Use recipient as scope if it's a user ID
                     )
                     request_id = (
                         action.params.get("request_id")
                         or ((action.params.get("metadata") or {}).get("request_id"))
                         or ""
                     )
-                    recipient = str(action.params.get("recipient", ""))
                     source_channel = action.params.get("source_channel") or ""
                     source_chat_id = action.params.get("source_chat_id") or ""
 
                     if not content:
                         continue
-
-                    if not reply_scope and recipient.startswith("user:"):
-                        parts = recipient.split(":", 2)
-                        if len(parts) >= 2:
-                            reply_scope = parts[1]
 
                     if reply_scope:
                         await self.broadcast_manager.publish(
@@ -279,6 +278,7 @@ class IOProcessor:
                                 "request_id": request_id,
                             },
                         )
+                        logger.info(f"[IO] Published agent_reply to scope {reply_scope}, content_length={len(content)}")
 
                     outbound_targets = self._collect_outbound_targets(
                         reply_scope=reply_scope,
@@ -289,6 +289,12 @@ class IOProcessor:
 
                     sent = 0
                     for target_channel, target_chat_id in outbound_targets:
+                        # Avoid rebroadcasting to dashboard via outbound paths when already sent as agent_reply.
+                        # This prevents duplicate frontend messages and 1001 caused by redundant websocket traffic.
+                        if target_channel == "dashboard" and target_chat_id == "direct":
+                            logger.info(f"[IO] Skipping outbound publish to dashboard/direct (already agent_reply) for scope={reply_scope}")
+                            continue
+
                         event_id = self._make_event_id(
                             "out",
                             {
@@ -344,7 +350,7 @@ class IOProcessor:
                     if origin and ch == origin[0] and external_id == origin[1]:
                         continue
                     outbound_targets.append((ch, external_id))
-            if not outbound_targets and origin:
+            if not outbound_targets and origin and origin[0] != 'dashboard':
                 outbound_targets.append((origin[0], origin[1]))
             return outbound_targets
         if ":" in recipient and not recipient.startswith("did:"):

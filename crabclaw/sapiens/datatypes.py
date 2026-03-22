@@ -30,6 +30,7 @@ class Stimulus(BaseModel):
     intensity: float = Field(default=0.8, ge=0.0, le=1.0, description="The perceived strength of the stimulus.")
     urgency: float = Field(default=0.5, ge=0.0, le=1.0, description="How immediately the stimulus needs to be addressed.")
     timestamp: float = Field(..., description="The time the stimulus was perceived.")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Any additional data associated with the stimulus.")
 
 class Goal(BaseModel):
     """

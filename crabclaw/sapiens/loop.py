@@ -37,7 +37,7 @@ class PersistentAgentLoop:
         """
         The main `while` loop that constitutes the agent's life.
         """
-        logger.debug(f"[Loop] Agent '{self.agent.id}' life loop starting.")
+        logger.info(f"[Loop] Agent '{self.agent.id}' life loop starting.")
         while not self._stop_event.is_set():
             self.agent.physiology.tick()
             self.agent.psychology.tick()
@@ -49,7 +49,7 @@ class PersistentAgentLoop:
                 self.agent.physiology.metabolism.energy / max(1.0, self.agent.physiology.metabolism.energy_max),
             )
             self.agent.sociology.economy.refresh()
-            logger.debug(
+            logger.info(
                 f"[Tick {self.agent.physiology.lifecycle.age_ticks}] "
                 f"Energy: {self.agent.physiology.metabolism.energy:.2f}, "
                 f"Satiety: {self.agent.physiology.metabolism.satiety:.2f}, "
@@ -81,7 +81,7 @@ class PersistentAgentLoop:
             all_signals = internal_signals + external_signals
             conscious_focus = self.agent.psychology.workspace.select_focus(all_signals)
             if conscious_focus:
-                logger.debug(f"[Loop] Conscious focus: {[getattr(s, 'content', str(s)) for s in conscious_focus]}")
+                logger.info(f"[Loop] Conscious focus: {[getattr(s, 'content', str(s)) for s in conscious_focus]}")
                 self.agent.memory_system.working.add_focus(conscious_focus)
             if any(getattr(s, 'source', '') == "Physiology" and getattr(s, 'content', '') == "Hunger" for s in conscious_focus):
                 self.agent.psychology.emotion.update_from_event({"type": "low_energy_warning"})
@@ -95,9 +95,9 @@ class PersistentAgentLoop:
                 focus=conscious_focus,
                 world_model=self.agent.world_model,
             )
-            logger.debug(f"[Loop] Thought: {thought.content}")
+            logger.info(f"[Loop] Thought: {thought.content}")
             if plan["goal"]:
-                logger.debug(f"[Loop] Plan goal: {plan['goal']}")
+                logger.info(f"[Loop] Plan goal: {plan['goal']}")
 
             social_focus = any(
                 s.source in {"Sociology", "SocialMind"} or ("social" in s.content.lower())
@@ -123,7 +123,7 @@ class PersistentAgentLoop:
                             reason="propose collaboration",
                         )
                     )
-                    logger.debug(f"[Loop] Collaboration proposal sent to {collab_action['recipient']}")
+                    logger.info(f"[Loop] Collaboration proposal sent to {collab_action['recipient']}")
 
             action = self.agent.action_system.decision.choose_action(
                 conscious_focus,
@@ -134,7 +134,7 @@ class PersistentAgentLoop:
             )
 
             if action:
-                logger.debug(f"[Loop] Decided to execute action: {action.name}")
+                logger.info(f"[Loop] Decided to execute action: {action.name}")
                 if action.name == "send_message":
                     self.agent.outbound_action_queue.put_nowait(action)
                 elif action.name == "respond_to_message":
@@ -160,18 +160,20 @@ class PersistentAgentLoop:
                     else:
                         response_text = f"[Auto response to: {content}] This is a placeholder response. LLM integration needed."
                         
+                    recipient = action.params.get("recipient", "")
                     response_action = Action(
                         name="send_message",
                         params={
-                            "recipient": source,
+                            "recipient": recipient,
                             "content": response_text
                         },
                         reason="Respond to message via slow path"
                     )
                     self.agent.outbound_action_queue.put_nowait(response_action)
+                    logger.info(f"[Loop] Put send_message action to queue: recipient={recipient}, content_length={len(response_text)}")
                 else:
                     outcome = self.agent.action_system.executor.execute(action)
-                    logger.debug(f"[Loop] Internal action outcome: {outcome}")
+                    logger.info(f"[Loop] Internal action outcome: {outcome}")
                     self.agent.psychology.emotion.update_from_event(outcome)
                     self.agent.self_model.update_from_experience(outcome)
                     self.agent.world_model.update_from_reality(action, outcome)
@@ -194,10 +196,10 @@ class PersistentAgentLoop:
                         self.agent.sociology.social_mind.model_other_agent(outcome)
 
             if self.agent.physiology.lifecycle.age_ticks % 10 == 0:
-                logger.debug(f"[Loop] Agent '{self.agent.id}' is reflecting on its experiences...")
+                logger.info(f"[Loop] Agent '{self.agent.id}' is reflecting on its experiences...")
                 reflection = self.agent.reflection_system.reflect()
                 if reflection:
-                    logger.debug(f"[Loop] Reflection summary: {reflection}")
+                    logger.info(f"[Loop] Reflection summary: {reflection}")
             if self.agent.prompt_evolution is not None and self.agent.physiology.lifecycle.age_ticks % 20 == 0:
                 decisions = self.agent.prompt_evolution.auto_decide_deployments(
                     min_samples=12,
@@ -206,7 +208,7 @@ class PersistentAgentLoop:
                     rollback_error_rate=0.45,
                 )
                 if decisions:
-                    logger.debug(f"[Loop] Prompt evolution auto decisions: {decisions}")
+                    logger.info(f"[Loop] Prompt evolution auto decisions: {decisions}")
 
             time.sleep(TICK_INTERVAL)
 

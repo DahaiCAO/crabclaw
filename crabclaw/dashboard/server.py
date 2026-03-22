@@ -19,6 +19,7 @@ from websockets.server import serve
 
 from crabclaw.bus.broadcaster import BroadcastManager
 from crabclaw.user.manager import UserManager
+from crabclaw.session.manager import SessionManager
 
 
 class TokenError(Exception):
@@ -72,6 +73,7 @@ class DashboardServer:
         static_dir: Path,
         config: DashboardConfig | None = None,
         workspace: Path | None = None,
+        scheduler = None,
     ) -> None:
         self.broadcast_manager = broadcast_manager
         self.static_dir = static_dir
@@ -79,6 +81,8 @@ class DashboardServer:
         self._jwt_keys = self._get_jwt_keys()
         self.workspace = workspace or self._resolve_workspace()
         self.user_manager = UserManager(self.workspace)
+        self.session_manager = SessionManager(self.workspace)
+        self.scheduler = scheduler
 
         self._httpd: ThreadingHTTPServer | None = None
         self._http_thread: threading.Thread | None = None
@@ -323,17 +327,68 @@ class DashboardServer:
             q = None
             try:
                 user_id = await self._authenticate_ws_user(ws)
-                q = await self.broadcast_manager.subscribe(scope=user_id)
+                q_user = await self.broadcast_manager.subscribe(scope=user_id)
+                q_system = await self.broadcast_manager.subscribe(scope="system:state")
                 logger.info(f"WebSocket client connected for user '{user_id}'")
 
                 await ws.send(json.dumps({"type": "hello", "data": {"ws": self.ws_url, "user_id": user_id}}, ensure_ascii=False))
                 await ws.send(json.dumps({"type": "chat_history", "data": {"messages": self._get_chat_history(user_id)}}, ensure_ascii=False))
+                # Send initial internal state if scheduler is available
+                if self.scheduler and hasattr(self.scheduler, 'state'):
+                    await ws.send(json.dumps({"type": "internal_state", "data": self.scheduler.state.model_dump()}, ensure_ascii=False))
 
                 async def broadcast_loop():
                     while True:
                         try:
-                            msg = await q.get()
+                            task_user = asyncio.create_task(q_user.get())
+                            task_system = asyncio.create_task(q_system.get())
+                            done, pending = await asyncio.wait(
+                                [task_user, task_system],
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+
+                            msg = None
+                            for task in done:
+                                msg = task.result()
+                                break
+
+                            # Cancel pending tasks to avoid resource leaks
+                            for task in pending:
+                                task.cancel()
+                                try:
+                                    await task
+                                except asyncio.CancelledError:
+                                    pass
+
+                            if msg is None:
+                                continue
+
+                            msg_type = msg.get('type', 'unknown')
+                            if msg_type == 'unknown' and 'agent_id' in msg:
+                                # Legacy weekly format where internal state was sent as raw object
+                                msg = {"type": "internal_state", "data": msg}
+                                msg_type = "internal_state"
+
+                            if ws.closed:
+                                logger.warning(f"Broadcast loop: WS already closed for user '{user_id}', stopping loop")
+                                break
+
+                            logger.debug(f"Broadcast loop: Sending message to user '{user_id}': {msg_type}")
+                            if msg_type == "user_message":
+                                # Skip sending user_message back to the client as it's already displayed
+                                continue
+
+                            # Persist assistant messages for history
+                            if msg_type in ("agent_reply", "outbound_message"):
+                                try:
+                                    session = self.session_manager.get_or_create("dashboard", user_scope=user_id)
+                                    session.add_message("assistant", msg.get("content", ""))
+                                    self.session_manager.save(session)
+                                except Exception as e:
+                                    logger.warning(f"Failed to persist assistant history: {e}")
+
                             await ws.send(json.dumps(msg, ensure_ascii=False))
+                            logger.debug(f"Broadcast loop: Message sent successfully")
                         except Exception as e:
                             logger.error(f"Broadcast loop error for user '{user_id}': {e}", exc_info=True)
                             break
@@ -348,6 +403,16 @@ class DashboardServer:
                                 chat_data = data.get("data", {})
                                 message_content = chat_data.get("message", "")
                                 if message_content:
+                                    logger.debug(f"Received chat_message from user '{user_id}': {message_content[:50]}...")
+
+                                    # Persist user message in history
+                                    try:
+                                        session = self.session_manager.get_or_create("dashboard", user_scope=user_id)
+                                        session.add_message("user", message_content)
+                                        self.session_manager.save(session)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to persist user history: {e}")
+
                                     broadcast_message = {
                                         "type": "user_message",
                                         "source_channel": "dashboard",
@@ -357,6 +422,7 @@ class DashboardServer:
                                         "timestamp": time.time()
                                     }
                                     await self.broadcast_manager.publish(scope=user_id, message=broadcast_message)
+                                    logger.debug(f"Published user_message to broadcast manager")
                             elif msg_type == "get_channels":
                                 await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "get_providers":
@@ -499,6 +565,58 @@ class DashboardServer:
 
                                     save_config(config)
                                     logger.warning(f"Updated provider settings for: {list(provider_keys.keys())}")
+
+                                    # Update agent profile
+                                    if self.scheduler:
+                                        agent_keys = ["agent_name", "nickname", "gender", "age", "height", "weight", "hobbies"]
+                                        if any(k in body for k in agent_keys):
+                                            for k in agent_keys:
+                                                if k in body:
+                                                    if k in ["age", "height", "weight"]:
+                                                        setattr(self.scheduler.state, k, float(body[k] or 0))
+                                                    elif k == "hobbies":
+                                                        hobbies = body[k]
+                                                        if isinstance(hobbies, str):
+                                                            hobbies = [h.strip() for h in hobbies.split(",") if h.strip()]
+                                                        self.scheduler.state.hobbies = hobbies
+                                                    else:
+                                                        setattr(self.scheduler.state, k, body[k])
+
+                                            if self.scheduler.sapiens_core and self.scheduler.sapiens_core.self_model:
+                                                identity = self.scheduler.sapiens_core.self_model.identity
+                                                for k in agent_keys:
+                                                    if k in body:
+                                                        if k == "age":
+                                                            val = float(body[k] or 0)
+                                                            identity["age"] = val
+                                                            if hasattr(self.scheduler.sapiens_core, "physiology") and self.scheduler.sapiens_core.physiology:
+                                                                p = self.scheduler.sapiens_core.physiology
+                                                                if hasattr(p, "lifecycle"):
+                                                                    p.lifecycle.age_ticks = int(val * p.lifecycle.TICK_PER_YEAR)
+                                                        elif k in ["height", "weight"]:
+                                                            identity[k] = float(body[k] or 0)
+                                                        elif k == "hobbies":
+                                                            hobbies = body[k]
+                                                            if isinstance(hobbies, str):
+                                                                hobbies = [h.strip() for h in hobbies.split(",") if h.strip()]
+                                                            identity["hobbies"] = hobbies
+                                                        else:
+                                                            identity[k.replace("agent_", "")] = body[k]
+
+                                            await self.broadcast_manager.publish(
+                                                scope="system:state",
+                                                message={"type": "internal_state", "data": self.scheduler.state.model_dump()}
+                                            )
+
+                                        # Handle push_interval update
+                                        if "push_interval" in body:
+                                            try:
+                                                interval_val = float(body["push_interval"])
+                                                self.scheduler.config.dashboard.state_push_interval_s = max(0.2, interval_val)
+                                                logger.info(f"Updated state_push_interval_s to {self.scheduler.config.dashboard.state_push_interval_s}")
+                                            except (ValueError, TypeError) as e:
+                                                logger.warning(f"Invalid push_interval value: {body.get('push_interval')}, error: {e}")
+
                                 except Exception as e:
                                     success = False
                                     error = str(e)
@@ -598,8 +716,10 @@ class DashboardServer:
                 logger.error(f"WebSocket error for user '{user_id}': {e}", exc_info=True)
 
             finally:
-                if user_id and q:
-                    await self.broadcast_manager.unsubscribe(q, scope=user_id)
+                if user_id and q_user:
+                    await self.broadcast_manager.unsubscribe(q_user, scope=user_id)
+                if q_system:
+                    await self.broadcast_manager.unsubscribe(q_system, scope="system:state")
                 logger.info(f"WebSocket client disconnected for user '{user_id}'")
 
         self._ws_server = await serve(_handler, self.config.host, self.config.ws_port)
@@ -950,15 +1070,16 @@ class DashboardServer:
 
             config = load_config()
 
-            # Use the same session manager as the AgentLoop if available
-            # Note: The session key must match what process_direct uses
-            # In process_direct, session_key becomes the session key directly
-            if hasattr(self, "_processor") and hasattr(self._processor, "sessions"):
-                session = self._processor.sessions.get_or_create("dashboard", user_scope=user_id)
-            else:
-                # Fallback to creating a new session manager
-                session_manager = SessionManager(config.workspace_path)
-                session = session_manager.get_or_create("dashboard", user_scope=user_id)
+            # Prefer fixed session manager on dashboard server
+            try:
+                session = self.session_manager.get_or_create("dashboard", user_scope=user_id)
+            except Exception:
+                # Fallback to any available processor session or a local one
+                if hasattr(self, "_processor") and hasattr(self._processor, "sessions"):
+                    session = self._processor.sessions.get_or_create("dashboard", user_scope=user_id)
+                else:
+                    session_manager = SessionManager(config.workspace_path)
+                    session = session_manager.get_or_create("dashboard", user_scope=user_id)
 
             # Convert messages to a simpler format for the frontend
             history = []

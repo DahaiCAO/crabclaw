@@ -182,9 +182,9 @@ class AgentSapiens:
         """
         self.loop.run()
 
-    def get_outbound_action(self):
+    async def get_outbound_action(self):
         """Allows external systems (like the IOProcessor) to get the next action."""
-        return self.outbound_action_queue.get()
+        return await self.outbound_action_queue.get()
 
     def shutdown(self):
         """

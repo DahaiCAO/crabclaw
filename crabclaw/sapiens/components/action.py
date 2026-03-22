@@ -34,6 +34,10 @@ class DecisionEngine:
         """
         Generate a response to an incoming message using the LLM.
         """
+        import time
+        start_time = time.time()
+        logger.info(f"[LLM] Starting response generation for message from {source}: {message[:50]}...")
+        
         provider = self.llm_provider
         try:
             from crabclaw.config.loader import load_config
@@ -45,6 +49,7 @@ class DecisionEngine:
             pass
 
         if not provider:
+            logger.warning(f"[LLM] No LLM provider configured for response generation")
             return f"[Auto response to: {message}] LLM provider not configured."
 
         try:
@@ -61,6 +66,7 @@ class DecisionEngine:
                 }
             ]
 
+            logger.info(f"[LLM] Calling LLM provider: {type(provider).__name__}")
             response = await provider.chat(
                 messages=messages,
                 model=None,
@@ -68,12 +74,16 @@ class DecisionEngine:
                 max_tokens=2048,
             )
 
+            elapsed = time.time() - start_time
+            logger.info(f"[LLM] Response generated in {elapsed:.2f}s, content length: {len(response.content) if response.content else 0}")
+
             if response.content:
                 return response.content.strip()
             return "[Sorry, I could not generate a response.]"
 
         except Exception as e:
-            import traceback
+            elapsed = time.time() - start_time
+            logger.error(f"[LLM] Error generating response after {elapsed:.2f}s: {str(e)}", exc_info=True)
             # Return the exact error to help debug
             error_trace = traceback.format_exc()
             return f"[Error generating response: {str(e)}]\nTraceback:\n{error_trace}"
@@ -124,17 +134,18 @@ class DecisionEngine:
         
         # 1.5 Ultra Fast Path: Respond to user messages immediately
         # If there's a user message, respond to it immediately without deliberation
-        logger.debug(f"[Ultra Fast Path] Checking {len(focus)} items in focus")
+        logger.info(f"[Ultra Fast Path] Checking {len(focus)} items in focus")
         for item in focus:
-            logger.debug(f"[Ultra Fast Path] Item: type={type(item).__name__}, isinstance Stimulus={isinstance(item, Stimulus)}, type={getattr(item, 'type', 'N/A')}, content={str(item.content)[:50] if hasattr(item, 'content') else 'N/A'}")
+            logger.info(f"[Ultra Fast Path] Item: type={type(item).__name__}, isinstance Stimulus={isinstance(item, Stimulus)}, type={getattr(item, 'type', 'N/A')}, content={str(item.content)[:50] if hasattr(item, 'content') else 'N/A'}")
             if isinstance(item, Stimulus) and item.type == "message":
                 msg_content = str(item.content).strip()
                 if msg_content:
-                    logger.debug(f"[Ultra Fast Path] Found user message: {msg_content[:30]}...")
+                    logger.info(f"[Ultra Fast Path] Found user message: {msg_content[:30]}...")
                     return Action(
                         name="respond_to_message",
                         params={
                             "content": msg_content,
+                            "recipient": item.metadata.get("sender_id"),
                             "source": item.source,
                             "original_stimulus": item,
                         },

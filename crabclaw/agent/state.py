@@ -11,7 +11,7 @@ class InternalState(BaseModel):
     
     # Basic Profile
     agent_id: str = "ClawSapiens-001"
-    name: str = "Crabclaw"
+    agent_name: str = "Crabclaw"
     nickname: str = ""
     age: float = 0.0
     gender: str = "non-binary"

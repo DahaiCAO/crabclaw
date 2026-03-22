@@ -70,9 +70,13 @@ function redirectToLogin() {
 }
 
 function eventKeyForMessage(type, data) {
-  if (data && data.event_id) return `${type}:${data.event_id}`;
-  const base = `${type}|${data?.channel || ''}|${data?.chat_id || ''}|${data?.sender_id || ''}|${data?.content || ''}|${data?.timestamp || ''}`;
-  return base;
+  const payload = data || {};
+  if (payload.event_id) {
+    return `${type}:${payload.event_id}`;
+  }
+
+  const content = payload.content || payload.response || '';
+  return `${type}|${payload.channel || ''}|${payload.chat_id || ''}|${payload.sender_id || ''}|${content}|${payload.timestamp || ''}`;
 }
 
 function shouldRenderEvent(type, data) {
@@ -244,6 +248,7 @@ function addChatMessage(content, isUser) {
 sendButton.addEventListener("click", () => {
   const message = chatInput.value.trim();
   if (message) {
+    console.log(`[Chat] Sending message: ${message}`);
     addChatMessage(message, true);
     chatInput.value = "";
     
@@ -256,8 +261,11 @@ sendButton.addEventListener("click", () => {
           timestamp: Date.now() / 1000
         }
       });
+      console.log(`[Chat] Sending payload: ${payload}`);
       window.ws.send(payload);
+      console.log(`[Chat] Message sent successfully`);
     } else {
+      console.error(`[Chat] WebSocket not connected. State: ${window.ws ? window.ws.readyState : 'undefined'}`);
       // Fallback to simulated response
       setTimeout(() => {
         addChatMessage("WebSocket not connected. Using simulated response.", false);
@@ -2471,9 +2479,18 @@ function renderPortrait(state) {
   if (!state) return;
   latestInternalState = state;
 
+  // Helper function for progress bars
+  const updateProgress = (id, val) => {
+    const el = qs(id);
+    if (el) el.style.width = (val * 100) + "%";
+    const valEl = qs(id + "-val");
+    if (valEl) valEl.textContent = val.toFixed(2);
+  };
+
   // 1. Basic Profile
   safeUpdate("pt-id", state.agent_id || "");
-  safeUpdate("pt-name", state.name || "");
+  const displayName = state.agent_name || "Crabclaw";
+  safeUpdate("pt-name", displayName);
   safeUpdate("pt-nickname", state.nickname || "");
   safeUpdate("pt-age", (state.age || 0).toFixed(1));
   
@@ -2487,26 +2504,15 @@ function renderPortrait(state) {
 
   // 2. Psychology & Emotion
   const emotion = state.psychology?.emotion || {};
-  const updateRange = (id, val) => {
-    const el = qs(id);
-    if (!el || document.activeElement === el) return;
-    el.value = val || 0;
-    const valEl = qs(id + "-val");
-    if (valEl) valEl.textContent = (val || 0).toFixed(2);
-  };
-  updateRange("pt-curiosity", emotion.curiosity);
-  updateRange("pt-confidence", emotion.confidence);
-  updateRange("pt-risk-aversion", emotion.risk_aversion);
-  updateRange("pt-social-trust", emotion.social_trust);
+  console.log("[renderPortrait] emotion data:", emotion);
+  updateProgress("pt-curiosity", emotion.curiosity || 0);
+  updateProgress("pt-confidence", emotion.confidence || 0);
+  updateProgress("pt-risk-aversion", emotion.risk_aversion || 0);
+  updateProgress("pt-social-trust", emotion.social_trust || 0);
 
   // 3. Needs & Motivation
   const needs = state.needs || {};
-  const updateProgress = (id, val) => {
-    const el = qs(id);
-    if (el) el.style.width = (val * 100) + "%";
-    const valEl = qs(id + "-val");
-    if (valEl) valEl.textContent = val.toFixed(2);
-  };
+  console.log("[renderPortrait] needs data:", needs);
   updateProgress("pt-need-energy", needs.energy || 0);
   updateProgress("pt-need-social", needs.social || 0);
   updateProgress("pt-need-achievement", needs.achievement || 0);
@@ -2794,6 +2800,7 @@ function connect(){
   };
   ws.onclose = (event) => {
     console.log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}, Was clean: ${event.wasClean}`);
+    console.trace("WebSocket close stack trace");
     setConn(false, "menu.ws_disconnected");
   };
   ws.onerror = (error) => {
@@ -2821,6 +2828,7 @@ function connect(){
     }
 
     if (type === "internal_state"){
+      console.log("[Dashboard] Received internal_state:", data);
       renderPortrait(data);
       return;
     }
@@ -3089,7 +3097,12 @@ function connect(){
     }
 
     if (type === "agent_reply"){
-      addChatMessage(data.content, false);
+      addChatMessage(payload.content, false);
+      return;
+    }
+
+    if (type === "user_message"){
+      // Ignore user messages (they're already added to the chat by addChatMessage)
       return;
     }
 

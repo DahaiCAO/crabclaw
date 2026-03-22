@@ -123,14 +123,16 @@ class BehaviorScheduler:
             static_dir=static_dir,
             config=cfg,
             workspace=self.workspace,
+            scheduler=self,
         )
 
     async def _start_dashboard_streams(self) -> None:
+        logger.info("Starting dashboard streams...")
         # 1) Tail audit log file (helps after restarts / external writers).
         if self.config.dashboard.audit_tail_enabled:
             self._audit_tailer = JsonlTailer(
                 path=self.audit_log_dir,
-                broadcaster=self.dashboard_broadcaster,
+                broadcaster=self.broadcast_manager,
                 event_type="audit",
                 from_end=self.config.dashboard.audit_tail_from_end,
                 poll_interval_s=0.5,
@@ -138,10 +140,11 @@ class BehaviorScheduler:
             await self._audit_tailer.start()
 
         # 2) Push InternalState periodically so UI is "live".
-        interval = max(0.2, float(self.config.dashboard.state_push_interval_s))
-
         async def _tick():
             while True:
+                # Read interval dynamically from config each iteration
+                interval = max(0.2, float(self.config.dashboard.state_push_interval_s))
+
                 # Sync state from sapiens_core if available
                 if self.sapiens_core:
                     self.state.is_alive = self.sapiens_core.is_alive
@@ -149,7 +152,7 @@ class BehaviorScheduler:
 
                     # Sync Profile (Placeholder for name, etc. if they exist in core)
                     if hasattr(self.sapiens_core, "self_model") and self.sapiens_core.self_model:
-                        self.state.name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
+                        self.state.agent_name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
                         self.state.nickname = self.sapiens_core.self_model.identity.get("nickname") or ""
                         self.state.gender = self.sapiens_core.self_model.identity.get("gender") or "non-binary"
                         self.state.height = self.sapiens_core.self_model.identity.get("height") or 175.0
@@ -196,17 +199,35 @@ class BehaviorScheduler:
                             self.state.psychology = {
                                 "emotion": psy.emotion.state
                             }
+                            logger.debug(f"Sync psychology: {psy.emotion.state}")
+                        else:
+                            logger.debug("No emotion attribute in psychology")
+                    else:
+                        logger.debug("No psychology in sapiens_core")
 
                     # Sync Needs
                     if hasattr(self.sapiens_core, "needs_engine") and self.sapiens_core.needs_engine:
                         self.state.needs = self.sapiens_core.needs_engine.needs
+                        logger.info(f"Sync needs: {self.sapiens_core.needs_engine.needs}")
+                    else:
+                        logger.info("No needs_engine in sapiens_core")
 
                     self.state.update_timestamp()
 
-                await self.broadcast_manager.publish("internal_state", self.state.model_dump())
+                # Publish internal state updates in a consistent dashboard-compatible format
+                # and on the dedicated system state scope so the dashboard can subscribe to it.
+                logger.info(f"_tick: Publishing internal_state, psychology={self.state.psychology}, needs={self.state.needs}")
+                await self.broadcast_manager.publish(
+                    "system:state",
+                    {
+                        "type": "internal_state",
+                        "data": self.state.model_dump(),
+                    },
+                )
                 await asyncio.sleep(interval)
 
         self._state_ticker = asyncio.create_task(_tick())
+        logger.info(f"Started state ticker with interval {self.config.dashboard.state_push_interval_s}s")
 
     async def _stop_dashboard_streams(self) -> None:
         if self._state_ticker:
@@ -274,7 +295,7 @@ class BehaviorScheduler:
 
         # 3. Update local state immediately to avoid lag
         if "agent_name" in payload:
-            self.state.name = payload["agent_name"]
+            self.state.agent_name = payload["agent_name"]
         if "nickname" in payload:
             self.state.nickname = payload["nickname"]
 
@@ -325,11 +346,14 @@ class BehaviorScheduler:
 
     def _init_reactive_engine(self) -> "IOProcessor":
         from crabclaw.agent.loop import IOProcessor
-        return IOProcessor(
+        processor = IOProcessor(
             bus=self.bus,
             sapiens_core=self.sapiens_core,
             broadcast_manager=self.broadcast_manager
         )
+        # Bind session manager to dashboard session path for history persistence
+        processor.sessions = self.session_manager
+        return processor
 
 
     def _setup_callbacks(self) -> None:
@@ -353,7 +377,7 @@ class BehaviorScheduler:
         try:
             # Broadcast to dashboard
             asyncio.get_running_loop().create_task(
-                self.dashboard_broadcaster.publish("template_reloaded", {
+                self.broadcast_manager.publish("template_reloaded", {
                     "template_name": template_name,
                     "file_name": f"{template_name.upper()}.md",
                     "message": f"Template '{template_name.upper()}.md' has been hot-reloaded",
@@ -373,6 +397,15 @@ class BehaviorScheduler:
             scope = self.user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
         if not scope:
             return
+
+        # Save inbound user message to session history
+        try:
+            session = self.session_manager.get_or_create("dashboard", user_scope=scope)
+            session.add_message("user", msg.content)
+            self.session_manager.save(session)
+        except Exception as e:
+            logger.warning("Failed to persist inbound history: {}", e)
+
         event = {
             "type": "inbound_message",
             "channel": msg.channel,
@@ -421,6 +454,15 @@ class BehaviorScheduler:
             },
         )
         await self.broadcast_manager.publish(scope=scope, message=event)
+
+        # Save outbound assistant message to session history
+        try:
+            session = self.session_manager.get_or_create("dashboard", user_scope=scope)
+            session.add_message("assistant", msg.content)
+            self.session_manager.save(session)
+        except Exception as e:
+            logger.warning("Failed to persist outbound history: {}", e)
+
         await self.broadcast_manager.publish(
             scope=scope,
             message={
@@ -481,9 +523,19 @@ class BehaviorScheduler:
     def _load_internal_state(self) -> InternalState:
         if self.state_file.exists():
             logger.info(f"Loading internal state from {self.state_file}")
-            return InternalState.model_validate_json(self.state_file.read_text(encoding="utf-8"))
+            return InternalState.model_validate_json(self.state_file.read_text(encoding='utf-8'))
         logger.info("No internal state file found, creating new one.")
-        return InternalState()
+        # Initialize from config if available
+        return InternalState(
+            agent_id=self.config.agent_id,
+            agent_name=self.config.agent_name or "Crabclaw",
+            nickname=self.config.nickname or "",
+            gender=self.config.gender or "non-binary",
+            age=float(self.config.age or 22),
+            height=float(self.config.height or 175),
+            weight=float(self.config.weight or 70),
+            hobbies=self.config.hobbies or [],
+        )
 
     def _save_internal_state(self):
         logger.info(f"Saving internal state to {self.state_file}")
@@ -504,6 +556,67 @@ class BehaviorScheduler:
         Start all engines and services simultaneously and manage their lifecycle.
         """
         logger.info("Behavior Scheduler starting all services and engines...")
+
+        # Sync initial state from sapiens_core before starting services
+        if self.sapiens_core:
+            self.state.is_alive = self.sapiens_core.is_alive
+            self.state.agent_id = self.sapiens_core.id
+
+            # Sync Profile (Placeholder for name, etc. if they exist in core)
+            if hasattr(self.sapiens_core, "self_model") and self.sapiens_core.self_model:
+                self.state.agent_name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
+                self.state.nickname = self.sapiens_core.self_model.identity.get("nickname") or ""
+                self.state.gender = self.sapiens_core.self_model.identity.get("gender") or "non-binary"
+                self.state.height = self.sapiens_core.self_model.identity.get("height") or 175.0
+                self.state.weight = self.sapiens_core.self_model.identity.get("weight") or 70.0
+                self.state.hobbies = self.sapiens_core.self_model.identity.get("hobbies") or []
+                self.state.self_model = {
+                    "confidence": self.sapiens_core.self_model.state.get("confidence", 0.0),
+                    "skills": self.sapiens_core.self_model.identity.get("skills", {})
+                }
+
+            # Sync Physiology
+            if hasattr(self.sapiens_core, "physiology") and self.sapiens_core.physiology:
+                p = self.sapiens_core.physiology
+                if hasattr(p, "metabolism"):
+                    self.state.physiology = {
+                        "metabolism": {
+                            "energy": getattr(p.metabolism, "energy", 0.0),
+                            "health": getattr(p.metabolism, "health", 0.0),
+                            "satiety": getattr(p.metabolism, "satiety", 0.0),
+                        }
+                    }
+                if hasattr(p, "lifecycle"):
+                    self.state.age = p.lifecycle.age
+                    self.state.physiology["plasticity"] = p.lifecycle.plasticity
+
+            # Sync Sociology
+            if hasattr(self.sapiens_core, "sociology") and self.sapiens_core.sociology:
+                s = self.sapiens_core.sociology
+                known_count = len(getattr(s.social_mind, "mind_models", {}))
+                potential_count = getattr(s.manager, "get_potential_agents_count", lambda: 0)()
+
+                self.state.sociology = {
+                    "economy": {
+                        "credits": getattr(s.economy, "credits", 0.0)
+                    },
+                    "ticks_since_last_interaction": getattr(s.manager, "ticks_since_last_interaction", 0),
+                    "partners_count": max(known_count, potential_count)
+                }
+
+            # Sync Psychology
+            if hasattr(self.sapiens_core, "psychology") and self.sapiens_core.psychology:
+                psy = self.sapiens_core.psychology
+                if hasattr(psy, "emotion"):
+                    self.state.psychology = {
+                        "emotion": psy.emotion.state
+                    }
+
+            # Sync Needs
+            if hasattr(self.sapiens_core, "needs_engine") and self.sapiens_core.needs_engine:
+                self.state.needs = self.sapiens_core.needs_engine.needs
+
+            self.state.update_timestamp()
 
         # Start peripheral services
         if self.enable_gateway and self.gateway_server:
@@ -611,7 +724,7 @@ class BehaviorScheduler:
                     for record in records:
                         try:
                             asyncio.get_running_loop().create_task(
-                                self.dashboard_broadcaster.publish("prompt_evolution", {
+                                self.broadcast_manager.publish("prompt_evolution", {
                                     "template_name": record.template_name,
                                     "change_type": record.change_type,
                                     "rationale": record.rationale,
