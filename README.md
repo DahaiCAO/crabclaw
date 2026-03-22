@@ -84,7 +84,7 @@ flowchart LR
     FE[Feishu]
     EM[Email]
     WS[WhatsApp]
-    GWCLI[Gateway /message]
+    GWCLI["Gateway /message"]
   end
 
   TG --> BUS
@@ -95,7 +95,7 @@ flowchart LR
 
   subgraph Core
     BUS[MessageBus]
-    BM[BroadcastManager scoped pub/sub]
+    BM["BroadcastManager scoped pub/sub"]
     IO[IOProcessor]
     SAP[Sapiens Core]
     UM[UserManager]
@@ -110,12 +110,18 @@ flowchart LR
   UM --> BM
 
   subgraph UX
-    DASH[Dashboard WS/HTTP]
-    API[/api/login /api/me /api/logout /api/delete-account]
+    DASH["Dashboard WS/HTTP"]
+    API_LOGIN["/api/login"]
+    API_ME["/api/me"]
+    API_LOGOUT["/api/logout"]
+    API_DELETE["/api/delete-account"]
   end
 
   BM --> DASH
-  API --> DASH
+  API_LOGIN --> DASH
+  API_ME --> DASH
+  API_LOGOUT --> DASH
+  API_DELETE --> DASH
 ```
 
 Detailed docs:

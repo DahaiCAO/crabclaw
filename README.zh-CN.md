@@ -82,7 +82,7 @@ flowchart LR
     FE[Feishu]
     EM[Email]
     WA[WhatsApp]
-    GW[Gateway /message]
+    GW["Gateway /message"]
   end
 
   TG --> BUS
@@ -93,7 +93,7 @@ flowchart LR
 
   subgraph Core[核心运行时]
     BUS[MessageBus]
-    BM[BroadcastManager 用户域 pub/sub]
+    BM["BroadcastManager 用户域 pub/sub"]
     IO[IOProcessor]
     SAP[Sapiens Core]
     UM[UserManager]
@@ -108,12 +108,18 @@ flowchart LR
   UM --> BM
 
   subgraph UX[交互层]
-    DASH[Dashboard WS/HTTP]
-    API[/api/login /api/me /api/logout /api/delete-account]
+    DASH["Dashboard WS/HTTP"]
+    API_LOGIN["/api/login"]
+    API_ME["/api/me"]
+    API_LOGOUT["/api/logout"]
+    API_DELETE["/api/delete-account"]
   end
 
   BM --> DASH
-  API --> DASH
+  API_LOGIN --> DASH
+  API_ME --> DASH
+  API_LOGOUT --> DASH
+  API_DELETE --> DASH
 ```
 
 详细文档：
