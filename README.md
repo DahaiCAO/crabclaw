@@ -1,4 +1,4 @@
-# 🦀 Crabclaw — Human-Like Multi-Channel Agent OS
+# 🦀 Crabclaw — Your AI Assistant with Human-like Behavior
 
 <p align="center">
   <picture>

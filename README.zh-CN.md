@@ -1,4 +1,4 @@
-# 🦀 Crabclaw — 类人智能多通道 Agent OS
+# 🦀 虾兵蟹将 Crabclaw — 你的能思考的 AI 全能助手
 
 <p align="center">
   <picture>
