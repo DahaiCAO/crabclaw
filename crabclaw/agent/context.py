@@ -39,7 +39,7 @@ class ContextBuilder:
                 return parts[1].strip() or None
         return None
 
-    def build_system_prompt(self, skill_names: list[str] | None = None, routing_key: str | None = None) -> str:
+    def build_system_prompt(self, skill_names: list[str] | None = None, routing_key: str | None = None, query: str | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
         parts = [self._get_identity()]
         user_scope = self._extract_user_scope(routing_key)
@@ -59,7 +59,7 @@ class ContextBuilder:
         if law_content:
             parts.append("## --- THE CONSTITUTION (Absolute Law) ---\n" + law_content)
 
-        memory = self.memory.get_memory_context(user_scope=user_scope)
+        memory = self.memory.get_memory_context(user_scope=user_scope, query=query)
         if memory:
             parts.append(f"# Dynamic Memory\n\n{memory}")
 
@@ -98,8 +98,9 @@ You are Crabclaw, a helpful AI assistant.
 
 ## Workspace
 Your workspace is at: {workspace_path}
-- Long-term memory: {workspace_path}/memory/MEMORY.md (write important facts here)
-- History log: {workspace_path}/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].
+- Global memory: {workspace_path}/memory/semantic.json
+- User memory: {workspace_path}/portfolios/<user_id>/memory/semantic.json
+- History log: {workspace_path}/memory/episodic.jsonl (grep-searchable).
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
 ## Crabclaw Guidelines
@@ -180,7 +181,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
         return [
-            {"role": "system", "content": self.build_system_prompt(skill_names, routing_key=routing_key)},
+            {"role": "system", "content": self.build_system_prompt(skill_names, routing_key=routing_key, query=current_message)},
             *history,
             {"role": "user", "content": merged},
         ]

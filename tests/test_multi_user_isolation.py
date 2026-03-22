@@ -54,10 +54,10 @@ def test_session_and_memory_are_isolated_per_user(tmp_path):
     assert loaded_zhang.messages[-1]["content"] == "hello from zhang"
     assert loaded_li.messages[-1]["content"] == "hello from li"
 
-    memory.write_long_term("zhang-memory", user_scope="user-zhang")
-    memory.write_long_term("li-memory", user_scope="user-li")
-    assert memory.read_long_term(user_scope="user-zhang") == "zhang-memory"
-    assert memory.read_long_term(user_scope="user-li") == "li-memory"
+    memory.write_user_semantic({"info": "zhang-memory"}, user_scope="user-zhang")
+    memory.write_user_semantic({"info": "li-memory"}, user_scope="user-li")
+    assert "zhang-memory" in memory.read_user_semantic(user_scope="user-zhang").get("info", "")
+    assert "li-memory" in memory.read_user_semantic(user_scope="user-li").get("info", "")
 
 
 def test_channel_configs_are_isolated_in_portfolio(tmp_path):

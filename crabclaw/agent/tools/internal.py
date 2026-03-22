@@ -6,6 +6,53 @@ from crabclaw.agent.tools.base import Tool
 from loguru import logger
 
 
+class SearchMemoryTool(Tool):
+    """Tool for searching episodic memory."""
+    
+    def __init__(self, memory_store):
+        self.memory_store = memory_store
+        
+    @property
+    def name(self) -> str:
+        return "search_deep_memory"
+        
+    @property
+    def description(self) -> str:
+        return "Search through the agent's long-term episodic memory logs using natural language queries to recall past events or discussions."
+        
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query, e.g., 'What did the user say about their project architecture?'"
+                }
+            },
+            "required": ["query"]
+        }
+        
+    async def execute(self, query: str, **kwargs) -> str:
+        """Execute the tool."""
+        try:
+            # We need user_scope to search user-specific memory
+            user_scope = kwargs.get("_user_scope")
+            if not user_scope:
+                # Try to get it from the agent loop context
+                from crabclaw.agent.loop import AgentLoop
+                for obj in globals().values():
+                    if isinstance(obj, AgentLoop):
+                        # This is a fallback if _user_scope is not passed directly
+                        break
+            
+            results = self.memory_store.search_episodic_memory(query, user_scope=user_scope, top_k=10)
+            return results
+        except Exception as e:
+            logger.error(f"Error searching memory: {e}")
+            return f"Error searching memory: {str(e)}"
+
+
 class ReloadSkillsTool(Tool):
     """Tool for reloading skills."""
     

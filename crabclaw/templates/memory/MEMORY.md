@@ -1,23 +1,20 @@
-# Long-term Memory
+# Semantic Memory Template
 
-This file stores important information that should persist across sessions.
+This template defines how structured JSON memory is presented to the LLM. It is no longer used for raw text storage.
 
-## User Information
+## Memory Structure
 
-(Important facts about the user)
+Crabclaw maintains a two-layer memory architecture to ensure both universal learning and strict privacy.
 
-## Preferences
+### 1. Global Semantic Memory
+These are universal facts, general knowledge, or coding preferences that apply to all users and sessions.
+- **Source**: `workspace/memory/semantic.json`
 
-(User preferences learned over time)
-
-## Project Context
-
-(Information about ongoing projects)
-
-## Important Notes
-
-(Things to remember)
+### 2. User Specific Memory
+These are personal preferences, private context, or project states specifically tied to the current user.
+- **Source**: `workspace/portfolios/<user_id>/memory/semantic.json`
 
 ---
 
-*This file is automatically updated by crabclaw when important information should be remembered.*
+*Note: The actual JSON content will be dynamically injected below this template by the ContextBuilder using BM25 RAG when the memory size exceeds the threshold.*
+

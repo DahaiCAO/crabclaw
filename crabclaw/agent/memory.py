@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -24,32 +25,63 @@ _SAVE_MEMORY_TOOL = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "history_entry": {
-                        "type": "string",
-                        "description": "A paragraph (2-5 sentences) summarizing key events/decisions/topics. "
-                        "Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
+                    "global_semantic_updates": {
+                        "type": "object",
+                        "description": "Updated GLOBAL knowledge base (key-value pairs). Extract ONLY generic knowledge, rules, code patterns, or abstract concepts here. NO USER PRIVATE INFO. Return empty object if nothing new.",
                     },
-                    "memory_update": {
+                    "user_semantic_updates": {
+                        "type": "object",
+                        "description": "Updated user-specific long-term facts (preferences, private data, ongoing project context). Return empty object if nothing new.",
+                    },
+                    "user_episodic_entry": {
                         "type": "string",
-                        "description": "Full updated long-term memory as markdown. Include all existing "
-                        "facts plus new ones. Return unchanged if nothing new.",
+                        "description": "A paragraph (2-5 sentences) summarizing key events/decisions/topics for this user. Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
                     },
                 },
-                "required": ["history_entry", "memory_update"],
+                "required": ["global_semantic_updates", "user_semantic_updates", "user_episodic_entry"],
             },
         },
     }
 ]
 
 
+def _ensure_text(value: Any) -> str:
+    """Normalize tool-call payload values to text for file storage."""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _ensure_dict(value: Any) -> dict:
+    """Normalize tool-call payload values to dict for json storage."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _get_timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 class MemoryStore:
-    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
+    """Two-layer memory: semantic.json (long-term facts) + episodic.jsonl (grep-searchable log)."""
+
+    _MAX_FAILURES_BEFORE_RAW_ARCHIVE = 3
 
     def __init__(self, workspace: Path):
-        self.memory_dir = ensure_dir(workspace / "memory")
-        self.memory_file = self.memory_dir / "MEMORY.md"
-        self.history_file = self.memory_dir / "HISTORY.md"
-        self.user_memory_root = ensure_dir(workspace / "memory_by_user")
+        self.workspace = workspace
+        self.global_memory_dir = ensure_dir(workspace / "memory")
+        self.global_semantic_file = self.global_memory_dir / "semantic.json"
+        self.global_episodic_file = self.global_memory_dir / "episodic.jsonl"
+        self.portfolios_root = ensure_dir(workspace / "portfolios")
+        self._consecutive_failures = 0
+        
+        # Ensure global semantic exists
+        if not self.global_semantic_file.exists():
+            self.global_semantic_file.write_text("{}", encoding="utf-8")
 
     @staticmethod
     def _normalize_user_scope(user_scope: str | None) -> str | None:
@@ -58,34 +90,163 @@ class MemoryStore:
         value = str(user_scope).strip()
         return value or None
 
+    def _get_user_memory_dir(self, user_scope: str) -> Path:
+        """Get local memory directory within user portfolio."""
+        user_dir = ensure_dir(self.portfolios_root / safe_filename(user_scope) / "memory")
+        return user_dir
+
     def _get_user_memory_paths(self, user_scope: str) -> tuple[Path, Path]:
-        user_dir = ensure_dir(self.user_memory_root / safe_filename(user_scope))
-        return user_dir / "MEMORY.md", user_dir / "HISTORY.md"
+        user_dir = self._get_user_memory_dir(user_scope)
+        semantic_file = user_dir / "semantic.json"
+        episodic_file = user_dir / "episodic.jsonl"
+        
+        if not semantic_file.exists():
+            semantic_file.write_text("{}", encoding="utf-8")
+            
+        return semantic_file, episodic_file
 
-    def _resolve_paths(self, user_scope: str | None = None) -> tuple[Path, Path]:
-        normalized = self._normalize_user_scope(user_scope)
-        if normalized is None:
-            return self.memory_file, self.history_file
-        return self._get_user_memory_paths(normalized)
+    def read_global_semantic(self) -> dict:
+        if self.global_semantic_file.exists():
+            try:
+                return json.loads(self.global_semantic_file.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        return {}
 
-    def read_long_term(self, user_scope: str | None = None) -> str:
-        memory_file, _ = self._resolve_paths(user_scope=user_scope)
-        if memory_file.exists():
-            return memory_file.read_text(encoding="utf-8")
-        return ""
+    def read_user_semantic(self, user_scope: str) -> dict:
+        semantic_file, _ = self._get_user_memory_paths(user_scope)
+        if semantic_file.exists():
+            try:
+                return json.loads(semantic_file.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        return {}
 
-    def write_long_term(self, content: str, user_scope: str | None = None) -> None:
-        memory_file, _ = self._resolve_paths(user_scope=user_scope)
-        memory_file.write_text(content, encoding="utf-8")
+    def write_global_semantic(self, data: dict) -> None:
+        self.global_semantic_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def append_history(self, entry: str, user_scope: str | None = None) -> None:
-        _, history_file = self._resolve_paths(user_scope=user_scope)
-        with open(history_file, "a", encoding="utf-8") as f:
-            f.write(entry.rstrip() + "\n\n")
+    def write_user_semantic(self, data: dict, user_scope: str) -> None:
+        semantic_file, _ = self._get_user_memory_paths(user_scope)
+        semantic_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def get_memory_context(self, user_scope: str | None = None) -> str:
-        long_term = self.read_long_term(user_scope=user_scope)
-        return f"## Long-term Memory\n{long_term}" if long_term else ""
+    def append_global_episodic(self, entry: str) -> None:
+        with open(self.global_episodic_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"timestamp": _get_timestamp(), "entry": entry}, ensure_ascii=False) + "\n")
+
+    def append_user_episodic(self, entry: str, user_scope: str) -> None:
+        _, episodic_file = self._get_user_memory_paths(user_scope)
+        with open(episodic_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"timestamp": _get_timestamp(), "entry": entry}, ensure_ascii=False) + "\n")
+
+    def get_memory_context(self, user_scope: str | None = None, query: str | None = None, max_items: int = 20) -> str:
+        """Called by ContextBuilder to inject JSON data into prompt.
+        If the memory is too large, it uses BM25 to retrieve the most relevant items based on the query.
+        """
+        global_sem = self.read_global_semantic()
+        user_sem = self.read_user_semantic(user_scope) if user_scope else {}
+        
+        # Check if we need to filter
+        total_items = len(global_sem) + len(user_sem)
+        if total_items > max_items and query:
+            from crabclaw.agent.retriever import BM25Retriever
+            retriever = BM25Retriever()
+            
+            docs = []
+            for k, v in global_sem.items():
+                docs.append({"id": f"global:{k}", "type": "global", "key": k, "content": f"{k}: {v}", "raw_val": v})
+            for k, v in user_sem.items():
+                docs.append({"id": f"user:{k}", "type": "user", "key": k, "content": f"{k}: {v}", "raw_val": v})
+                
+            retriever.add_documents(docs)
+            results = retriever.search(query, top_k=max_items)
+            
+            # Reconstruct filtered dictionaries
+            filtered_global = {}
+            filtered_user = {}
+            for res in results:
+                if res["type"] == "global":
+                    filtered_global[res["key"]] = res["raw_val"]
+                else:
+                    filtered_user[res["key"]] = res["raw_val"]
+                    
+            global_sem = filtered_global
+            user_sem = filtered_user
+        
+        context_parts = []
+        if global_sem:
+            context_parts.append(f"## 全局认知 (Global Semantic)\n```json\n{json.dumps(global_sem, ensure_ascii=False, indent=2)}\n```")
+            
+        if user_sem:
+            context_parts.append(f"## 当前用户档案 (User Specific)\n```json\n{json.dumps(user_sem, ensure_ascii=False, indent=2)}\n```")
+                
+        return "\n\n".join(context_parts)
+
+    def search_episodic_memory(self, query: str, user_scope: str | None = None, top_k: int = 10) -> str:
+        """Search through episodic JSONL files using BM25."""
+        from crabclaw.agent.retriever import BM25Retriever
+        retriever = BM25Retriever()
+        docs = []
+        
+        # Load global episodic
+        if self.global_episodic_file.exists():
+            with open(self.global_episodic_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        data = json.loads(line)
+                        docs.append({"content": data.get("entry", ""), "type": "global", "timestamp": data.get("timestamp", "")})
+                    except Exception: pass
+                    
+        # Load user episodic
+        if user_scope:
+            _, episodic_file = self._get_user_memory_paths(user_scope)
+            if episodic_file.exists():
+                with open(episodic_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip(): continue
+                        try:
+                            data = json.loads(line)
+                            docs.append({"content": data.get("entry", ""), "type": "user", "timestamp": data.get("timestamp", "")})
+                        except Exception: pass
+                        
+        retriever.add_documents(docs)
+        results = retriever.search(query, top_k=top_k)
+        
+        if not results:
+            return "No relevant memories found."
+            
+        out = []
+        for r in results:
+            out.append(f"[{r['type'].upper()}] {r['timestamp']} - {r['content']}")
+        return "\n".join(out)
+
+
+
+    def _fail_or_raw_archive(self, session: Session, old_messages: list[dict], user_scope: str | None) -> bool:
+        """Increment failure count; after threshold, raw-archive messages and return True."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures < self._MAX_FAILURES_BEFORE_RAW_ARCHIVE:
+            return False
+        self._raw_archive(old_messages, user_scope)
+        self._consecutive_failures = 0
+        return True
+
+    def _raw_archive(self, messages: list[dict], user_scope: str | None) -> None:
+        """Fallback: dump raw messages to episodic.jsonl without LLM summarization."""
+        lines = []
+        for m in messages:
+            if not m.get("content"):
+                continue
+            tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
+            lines.append(f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}")
+            
+        raw_text = f"[RAW] {len(messages)} messages\n" + "\n".join(lines)
+        if user_scope:
+            self.append_user_episodic(raw_text, user_scope)
+        else:
+            self.append_global_episodic(raw_text)
+            
+        logger.warning("Memory consolidation degraded: raw-archived {} messages", len(messages))
 
     async def consolidate(
         self,
@@ -97,7 +258,7 @@ class MemoryStore:
         memory_window: int = 50,
         user_scope: str | None = None,
     ) -> bool:
-        """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call.
+        """Consolidate old messages into semantic.json + episodic.jsonl via LLM tool call.
 
         Returns True on success (including no-op), False on failure.
         """
@@ -123,11 +284,20 @@ class MemoryStore:
             tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
             lines.append(f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}")
 
-        current_memory = self.read_long_term(user_scope=user_scope)
+        global_memory = self.read_global_semantic()
+        user_memory = self.read_user_semantic(user_scope) if user_scope else {}
+        
         prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
 
-## Current Long-term Memory
-{current_memory or "(empty)"}
+## Current Global Memory
+```json
+{json.dumps(global_memory, ensure_ascii=False, indent=2)}
+```
+
+## Current User Memory
+```json
+{json.dumps(user_memory, ensure_ascii=False, indent=2)}
+```
 
 ## Conversation to Process
 {chr(10).join(lines)}"""
@@ -156,29 +326,48 @@ class MemoryStore:
 
             if not response.has_tool_calls:
                 logger.warning("Memory consolidation: LLM did not call save_memory, skipping")
-                return False
+                return self._fail_or_raw_archive(session, old_messages, user_scope)
 
             args = response.tool_calls[0].arguments
-            # Some providers return arguments as a JSON string instead of dict
             if isinstance(args, str):
-                args = json.loads(args)
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    return self._fail_or_raw_archive(session, old_messages, user_scope)
             if not isinstance(args, dict):
                 logger.warning("Memory consolidation: unexpected arguments type {}", type(args).__name__)
-                return False
+                return self._fail_or_raw_archive(session, old_messages, user_scope)
 
-            if entry := args.get("history_entry"):
-                if not isinstance(entry, str):
-                    entry = json.dumps(entry, ensure_ascii=False)
-                self.append_history(entry, user_scope=user_scope)
-            if update := args.get("memory_update"):
-                if not isinstance(update, str):
-                    update = json.dumps(update, ensure_ascii=False)
-                if update != current_memory:
-                    self.write_long_term(update, user_scope=user_scope)
+            # Process global semantic
+            global_updates = _ensure_dict(args.get("global_semantic_updates", {}))
+            if global_updates:
+                # Merge logic: just overwrite or update keys
+                merged_global = {**global_memory, **global_updates}
+                if merged_global != global_memory:
+                    self.write_global_semantic(merged_global)
 
+            # Process user semantic
+            if user_scope:
+                user_updates = _ensure_dict(args.get("user_semantic_updates", {}))
+                if user_updates:
+                    merged_user = {**user_memory, **user_updates}
+                    if merged_user != user_memory:
+                        self.write_user_semantic(merged_user, user_scope)
+
+            # Process episodic
+            entry = args.get("user_episodic_entry")
+            if entry:
+                entry_text = _ensure_text(entry).strip()
+                if entry_text:
+                    if user_scope:
+                        self.append_user_episodic(entry_text, user_scope)
+                    else:
+                        self.append_global_episodic(entry_text)
+
+            self._consecutive_failures = 0
             session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
             logger.info("Memory consolidation done: {} messages, last_consolidated={}", len(session.messages), session.last_consolidated)
             return True
         except Exception:
             logger.exception("Memory consolidation failed")
-            return False
+            return self._fail_or_raw_archive(session, old_messages, user_scope)
