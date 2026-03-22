@@ -48,10 +48,12 @@ def setup_logging(
             return record
 
     if enable_console:
+        # Override console level to INFO or higher (keep DEBUG in file if requested)
+        console_level = "INFO" if level == "DEBUG" else level
         logger.add(
             sys.stderr,
             format=format_string or default_format,
-            level=level,
+            level=console_level,
             colorize=True,
             filter=sensitive_filter,
         )

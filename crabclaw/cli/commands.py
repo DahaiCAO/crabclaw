@@ -485,12 +485,6 @@ def setup(
         if gateway_port.isdigit():
             cfg.gateway.port = int(gateway_port)
 
-        enable_heartbeat = typer.confirm(translate("cli.config.enable_heartbeat"), default=True)
-        if enable_heartbeat:
-            heartbeat_interval = _ask_text(translate("cli.config.enter_heartbeat_interval"), default="1800")
-            if heartbeat_interval.isdigit():
-                cfg.gateway.heartbeat.interval_s = int(heartbeat_interval)
-
     # Step 9: Configure Dashboard (optional)
     _print_step(9, total_steps, translate("cli.config.step_8_title"))
 
@@ -587,16 +581,19 @@ def setup(
     if base_url != provider_info['default_base_url']:
         provider_config.api_base = base_url
 
-    # Set default model
-    if not cfg.agents:
-        from crabclaw.config.schema import AgentsConfig
-        cfg.agents = AgentsConfig()
-    if not cfg.agents.defaults:
-        from crabclaw.config.schema import AgentDefaultsConfig
-        cfg.agents.defaults = AgentDefaultsConfig()
-
-    cfg.agents.defaults.model = selected_model
-    cfg.agents.defaults.provider = provider_key
+    # Set provider model (not default model)
+    provider_config.model = selected_model
+    
+    # Don't set agents.defaults.model, use provider-specific models
+    # if not cfg.agents:
+    #     from crabclaw.config.schema import AgentsConfig
+    #     cfg.agents = AgentsConfig()
+    # if not cfg.agents.defaults:
+    #     from crabclaw.config.schema import AgentDefaultsConfig
+    #     cfg.agents.defaults = AgentDefaultsConfig()
+    # 
+    # cfg.agents.defaults.model = selected_model
+    # cfg.agents.defaults.provider = provider_key
 
     if enable_exec:
         from crabclaw.config.schema import ExecToolConfig
@@ -983,16 +980,19 @@ def onboard_config():
     if base_url != provider_info['default_base_url']:
         provider_config.api_base = base_url
 
-    # Set default model
-    if not config.agents:
-        from crabclaw.config.schema import AgentsConfig
-        config.agents = AgentsConfig()
-    if not config.agents.defaults:
-        from crabclaw.config.schema import AgentDefaultsConfig
-        config.agents.defaults = AgentDefaultsConfig()
-
-    config.agents.defaults.model = selected_model
-    config.agents.defaults.provider = provider_key
+    # Set provider model (not default model)
+    provider_config.model = selected_model
+    
+    # Don't set agents.defaults.model, use provider-specific models
+    # if not config.agents:
+    #     from crabclaw.config.schema import AgentsConfig
+    #     config.agents = AgentsConfig()
+    # if not config.agents.defaults:
+    #     from crabclaw.config.schema import AgentDefaultsConfig
+    #     config.agents.defaults = AgentDefaultsConfig()
+    # 
+    # config.agents.defaults.model = selected_model
+    # config.agents.defaults.provider = provider_key
 
     if enable_exec:
         from crabclaw.config.schema import ExecToolConfig
@@ -1022,37 +1022,34 @@ def _make_provider(config: Config):
     from crabclaw.providers.custom_provider import CustomProvider
     from crabclaw.providers.litellm_provider import LiteLLMProvider
     from crabclaw.providers.openai_codex_provider import OpenAICodexProvider
+    from crabclaw.providers.registry import PROVIDERS
 
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
-
-    # OpenAI Codex (OAuth)
-    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
-
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
-    if provider_name == "custom":
-        return CustomProvider(
-            api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
-            default_model=model,
-        )
-
-    from crabclaw.providers.registry import find_by_name
-    spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.crabclaw/config.json under providers section")
-        raise typer.Exit(1)
-
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
+    # Don't use config.agents.defaults.model, find provider with api_key
+    for spec in PROVIDERS:
+        p = getattr(config.providers, spec.name, None)
+        if p and hasattr(p, 'api_key') and p.api_key:
+            model = getattr(p, 'model', '')
+            if model:
+                provider_name = spec.name
+                if provider_name == "openai_codex" or model.startswith("openai-codex/"):
+                    return OpenAICodexProvider(default_model=model)
+                if provider_name == "custom":
+                    return CustomProvider(
+                        api_key=p.api_key,
+                        api_base=getattr(p, 'api_base', None) or "http://localhost:8000/v1",
+                        default_model=model,
+                    )
+                return LiteLLMProvider(
+                    api_key=p.api_key,
+                    api_base=getattr(p, 'api_base', None),
+                    default_model=model,
+                    extra_headers=getattr(p, 'extra_headers', None),
+                    provider_name=provider_name,
+                )
+    
+    console.print("[red]Error: No provider with API key configured.[/red]")
+    console.print("Set one in ~/.crabclaw/config.json under providers section")
+    raise typer.Exit(1)
 
 
 # ============================================================================
@@ -1194,17 +1191,44 @@ def gateway(
     console.print(f"[dim]Dashboard (if enabled): http://127.0.0.1:{cfg.dashboard.http_port}/[/dim]")
 
     # Initialize the main scheduler, which will be responsible for managing all engines
-    scheduler = BehaviorScheduler(cfg)
+    from crabclaw.sapiens.agent import AgentSapiens
+    # Generate default personality drives if not explicitly set in config
+    drives = {
+        "survival": 0.8,
+        "social": 0.5,
+        "curiosity": 0.7,
+        "achievement": 0.6,
+        "autonomy": 0.9,
+        "play": 0.3
+    }
+    sapiens_core = AgentSapiens(
+        agent_id=cfg.agent_id,
+        personality_drives=drives,
+        name=cfg.agent_name,
+        nickname=cfg.nickname,
+        age=float(cfg.age),
+        gender=cfg.gender,
+        height=float(cfg.height),
+        weight=float(cfg.weight),
+        hobbies=cfg.hobbies,
+        workspace_path=cfg.workspace_path
+    )
+    scheduler = BehaviorScheduler(cfg, sapiens_core=sapiens_core)
 
     async def run():
         try:
             await scheduler.run()
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            console.print("\nShutting down...")
+        except asyncio.CancelledError:
+            pass
         finally:
-            await scheduler.stop()
+            # We don't call scheduler.stop() here because it's already handled
+            # by the signal handlers inside scheduler.run() or we want to avoid double-close
+            pass
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        console.print("\nShutting down gracefully...")
 
 
 @app.command()
@@ -1216,9 +1240,18 @@ def dashboard(
     """Start the crabclaw web dashboard."""
     import asyncio
 
+    from loguru import logger
+
     from crabclaw.dashboard.server import DashboardConfig, DashboardServer
+    from crabclaw.bus.broadcaster import BroadcastManager
 
     console.print(f"{__logo__} Starting crabclaw dashboard...")
+
+    # Set log level to WARNING to suppress DEBUG and INFO logs
+    logger.remove()
+    logger.add(lambda msg: None, level="DEBUG")
+    logger.add(lambda msg: None, level="INFO")
+    logger.add(sys.stderr, level="WARNING")
 
     config = load_config()
 
@@ -1234,7 +1267,7 @@ def dashboard(
         ws_port=ws_port,
     )
 
-    broadcaster = DashboardBroadcaster()
+    broadcaster = BroadcastManager()
     server = DashboardServer(
         broadcaster,
         static_dir=static_dir,
@@ -1715,7 +1748,14 @@ def status():
     if config_path.exists():
         from crabclaw.providers.registry import PROVIDERS
 
-        console.print(f"\nModel: {config.agents.defaults.model}")
+        # Find first provider with model configured
+        model = ""
+        for spec in PROVIDERS:
+            p = getattr(config.providers, spec.name, None)
+            if p and hasattr(p, 'model') and p.model:
+                model = p.model
+                break
+        console.print(f"\nModel: {model or 'No model configured'}")
 
         # Check API keys from registry
         for spec in PROVIDERS:

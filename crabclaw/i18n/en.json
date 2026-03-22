@@ -168,7 +168,6 @@
       "channels_enabled": "[green]✓[/green] Channels enabled: {channels}",
       "no_channels": "[yellow]Warning: No channels enabled[/yellow]",
       "cron_jobs": "[green]✓[/green] Cron: {jobs} scheduled jobs",
-      "heartbeat": "[green]✓[/green] Heartbeat: every {interval}s",
       "shutting_down": "Shutting down..."
     },
     "chat": {

@@ -2296,7 +2296,9 @@ function renderSettings(config) {
     const routes = config.llm_routes || {};
     const providers = config.providers_catalog || [];
 
-    const findProvider = (name) => providers.find(p => p.config_name === name) || null;
+    const findProvider = (name) => {
+      return providers.find(p => p.config_name === name) || null;
+    };
     const describeProvider = (p) => {
       if (!p) return { base_url: "", model_name: "", api_key: "" };
       return {
@@ -2790,8 +2792,14 @@ function connect(){
     // Request translations for the current language
     loadTranslations(currentLang);
   };
-  ws.onclose = () => setConn(false, "menu.ws_disconnected");
-  ws.onerror = () => setConn(false, "menu.ws_error");
+  ws.onclose = (event) => {
+    console.log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}, Was clean: ${event.wasClean}`);
+    setConn(false, "menu.ws_disconnected");
+  };
+  ws.onerror = (error) => {
+    console.error("WebSocket error:", error);
+    setConn(false, "menu.ws_error");
+  };
 
   ws.onmessage = (ev) => {
     let payload = null;
@@ -2898,14 +2906,16 @@ function connect(){
         // 更新状态为ok
         const providerItems = document.querySelectorAll('.provider-item');
         providerItems.forEach(item => {
-          const name = item.querySelector('.provider-name');
-          if (name && name.textContent === data.provider_id) {
+          const info = item.querySelector('.provider-info');
+          if (info && info.textContent === data.provider_id) {
             const status = item.querySelector('.provider-status');
             if (status) {
               status.className = 'provider-status ok';
             }
             // 恢复保存按钮状态
-            const saveBtn = item.querySelector('button');
+            const actions = item.querySelector('.provider-item-actions');
+            const buttons = actions ? actions.querySelectorAll('button') : null;
+            const saveBtn = buttons && buttons.length ? buttons[buttons.length - 1] : null;
             if (saveBtn) {
               saveBtn.disabled = false;
               saveBtn.textContent = getTranslation('provider.save') || 'Save';
@@ -2917,14 +2927,16 @@ function connect(){
         // 更新状态为error
         const providerItems = document.querySelectorAll('.provider-item');
         providerItems.forEach(item => {
-          const name = item.querySelector('.provider-name');
-          if (name && name.textContent === data.provider_id) {
+          const info = item.querySelector('.provider-info');
+          if (info && info.textContent === data.provider_id) {
             const status = item.querySelector('.provider-status');
             if (status) {
               status.className = 'provider-status error';
             }
             // 恢复保存按钮状态
-            const saveBtn = item.querySelector('button');
+            const actions = item.querySelector('.provider-item-actions');
+            const buttons = actions ? actions.querySelectorAll('button') : null;
+            const saveBtn = buttons && buttons.length ? buttons[buttons.length - 1] : null;
             if (saveBtn) {
               saveBtn.disabled = false;
               saveBtn.textContent = getTranslation('provider.save') || 'Save';
@@ -2984,43 +2996,43 @@ function connect(){
     }
 
     if (type === "providers"){
-    renderProviders(data.providers || []);
-    return;
-  }
-
-  if (type === "channels"){
-    renderChannels(data);
-    return;
-  }
-
-  if (type === "channel_config_result"){
-    showNotification(data.ok ? "频道配置已保存" : (data.error || "频道配置保存失败"), data.ok ? "success" : "error");
-    return;
-  }
-
-  if (type === "channel_config_delete_result"){
-    showNotification(data.ok ? "频道配置已删除" : "频道配置删除失败", data.ok ? "success" : "error");
-    return;
-  }
-
-  if (type === "identity_map_result"){
-    showNotification(data.ok ? "身份映射已保存" : "身份映射保存失败", data.ok ? "success" : "error");
-    return;
-  }
-
-  if (type === "identity_delete_result"){
-    showNotification(data.ok ? "身份映射已删除" : "身份映射删除失败", data.ok ? "success" : "error");
-    return;
-  }
-
-  if (type === "users"){
-    if (data.ok === false) {
-      showNotification(data.error || "Failed to load users", "error");
+      renderProviders(data.providers || []);
       return;
     }
-    renderUsers(data.users || []);
-    return;
-  }
+
+    if (type === "channels"){
+      renderChannels(data);
+      return;
+    }
+
+    if (type === "channel_config_result"){
+      showNotification(data.ok ? "频道配置已保存" : (data.error || "频道配置保存失败"), data.ok ? "success" : "error");
+      return;
+    }
+
+    if (type === "channel_config_delete_result"){
+      showNotification(data.ok ? "频道配置已删除" : "频道配置删除失败", data.ok ? "success" : "error");
+      return;
+    }
+
+    if (type === "identity_map_result"){
+      showNotification(data.ok ? "身份映射已保存" : "身份映射保存失败", data.ok ? "success" : "error");
+      return;
+    }
+
+    if (type === "identity_delete_result"){
+      showNotification(data.ok ? "身份映射已删除" : "身份映射删除失败", data.ok ? "success" : "error");
+      return;
+    }
+
+    if (type === "users"){
+      if (data.ok === false) {
+        showNotification(data.error || "Failed to load users", "error");
+      return;
+      }
+      renderUsers(data.users || []);
+      return;
+    }
 
     if (type === "config"){
       console.log("Received config data:", data);
@@ -3073,6 +3085,11 @@ function connect(){
 
     if (type === "chat_response"){
       addChatMessage(data.response, false);
+      return;
+    }
+
+    if (type === "agent_reply"){
+      addChatMessage(data.content, false);
       return;
     }
 

@@ -293,29 +293,31 @@ class BehaviorScheduler:
         from crabclaw.providers.litellm_provider import LiteLLMProvider
         from crabclaw.providers.openai_codex_provider import OpenAICodexProvider
 
-        model = self.config.agents.defaults.model
-        if not model:
-            return None
-        provider_name = self.config.get_provider_name(model) or "custom"
-        p = self.config.get_provider(model)
-
-        if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-            return OpenAICodexProvider(default_model=model)
-
-        if provider_name == "custom":
-            return CustomProvider(
-                api_key=p.api_key if p else "no-key",
-                api_base=self.config.get_api_base(model) or "http://localhost:8000/v1",
-                default_model=model,
-            )
-
-        return LiteLLMProvider(
-            api_key=p.api_key if p else None,
-            api_base=self.config.get_api_base(model),
-            default_model=model,
-            extra_headers=p.extra_headers if p else None,
-            provider_name=provider_name,
-        )
+        # Don't use self.config.agents.defaults.model, use provider-specific models
+        # Try to find a provider with api_key configured
+        from crabclaw.providers.registry import PROVIDERS
+        for spec in PROVIDERS:
+            p = getattr(self.config.providers, spec.name, None)
+            if p and hasattr(p, 'api_key') and p.api_key:
+                model = getattr(p, 'model', '')
+                if model:
+                    provider_name = spec.name
+                    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
+                        return OpenAICodexProvider(default_model=model)
+                    if provider_name == "custom":
+                        return CustomProvider(
+                            api_key=p.api_key,
+                            api_base=getattr(p, 'api_base', None) or "http://localhost:8000/v1",
+                            default_model=model,
+                        )
+                    return LiteLLMProvider(
+                        api_key=p.api_key,
+                        api_base=getattr(p, 'api_base', None),
+                        default_model=model,
+                        extra_headers=getattr(p, 'extra_headers', None),
+                        provider_name=provider_name,
+                    )
+        return None
 
     def _init_cron_service(self) -> CronService:
         cron_store_path = get_data_dir() / "cron" / "jobs.json"
@@ -544,13 +546,17 @@ class BehaviorScheduler:
 
         # Gracefully handle stop signals
         loop = asyncio.get_running_loop()
+        
+        # We need a robust stop event to avoid double-stopping
+        self._stop_event = asyncio.Event()
+        
         stop_signals = []
         for name in ("SIGHUP", "SIGINT", "SIGTERM"):
             if hasattr(signal, name):
                 stop_signals.append(getattr(signal, name))
         for s in stop_signals:
             try:
-                loop.add_signal_handler(s, lambda s=s: asyncio.create_task(self.stop()))
+                loop.add_signal_handler(s, lambda: asyncio.create_task(self.stop()))
             except (NotImplementedError, RuntimeError):
                 # Windows / embedded loops may not support signal handlers.
                 pass
@@ -558,9 +564,9 @@ class BehaviorScheduler:
         # Wait for core tasks to complete and periodically save state
         try:
             core_tasks = self._tasks
-            while all(not task.done() for task in core_tasks):
+            while all(not task.done() for task in core_tasks) and not self._stop_event.is_set():
                 done, pending = await asyncio.wait(
-                    core_tasks,
+                    core_tasks + [asyncio.create_task(self._stop_event.wait())],
                     return_when=asyncio.FIRST_COMPLETED,
                     timeout=self.config.scheduler.save_interval,
                 )
@@ -569,15 +575,26 @@ class BehaviorScheduler:
                     # Timeout occurred, save state and continue loop
                     self._save_internal_state()
                 else:
+                    # Check if we were woken up by the stop event
+                    if self._stop_event.is_set():
+                        break
+                        
                     # A task finished, break the loop to shut down
                     for task in done:
-                        if task.exception():
+                        # Skip the stop_event.wait() task
+                        if getattr(task.get_coro(), "cr_code", None) and "wait" in str(task.get_coro().cr_code):
+                            continue
+                            
+                        if not task.cancelled() and task.exception():
                             logger.error(f"Core task failed, initiating shutdown: {task}", exc_info=task.exception())
                         else:
                             logger.info(f"Core task finished, initiating shutdown: {task}")
                     break
         except asyncio.CancelledError:
             logger.info("Scheduler main loop was cancelled.")
+        finally:
+            if not self._stop_event.is_set():
+                await self.stop()
 
     async def _run_prompt_evolution(self):
         """Background task for continuous prompt evolution."""
@@ -615,6 +632,13 @@ class BehaviorScheduler:
                 await asyncio.sleep(300)  # Wait 5 minutes before retrying
 
     async def stop(self):
+        if getattr(self, "_stopping", False):
+            return
+        self._stopping = True
+        
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
+            
         logger.info("Behavior Scheduler stopping all services and engines...")
 
         # Cancel prompt evolution task

@@ -7,8 +7,12 @@ and layers that constitute the agent's mind.
 from loguru import logger
 import asyncio
 from pathlib import Path
+from typing import Any
 
-from clawlink.protocol.envelope import MessageEnvelope
+try:
+    from clawlink.protocol.envelope import MessageEnvelope
+except ImportError:
+    MessageEnvelope = Any
 
 from crabclaw.agent.prompt_evolution import PromptEvolutionPipeline
 

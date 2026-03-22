@@ -8,6 +8,8 @@ import asyncio
 import random
 from typing import TYPE_CHECKING, Dict, List
 
+from loguru import logger
+
 from ..datatypes import Action, Signal, Stimulus
 
 if TYPE_CHECKING:
@@ -119,6 +121,25 @@ class DecisionEngine:
         reflex_action = self._check_natural_reflexes(focus, self_model)
         if reflex_action:
             return reflex_action
+        
+        # 1.5 Ultra Fast Path: Respond to user messages immediately
+        # If there's a user message, respond to it immediately without deliberation
+        logger.debug(f"[Ultra Fast Path] Checking {len(focus)} items in focus")
+        for item in focus:
+            logger.debug(f"[Ultra Fast Path] Item: type={type(item).__name__}, isinstance Stimulus={isinstance(item, Stimulus)}, type={getattr(item, 'type', 'N/A')}, content={str(item.content)[:50] if hasattr(item, 'content') else 'N/A'}")
+            if isinstance(item, Stimulus) and item.type == "message":
+                msg_content = str(item.content).strip()
+                if msg_content:
+                    logger.debug(f"[Ultra Fast Path] Found user message: {msg_content[:30]}...")
+                    return Action(
+                        name="respond_to_message",
+                        params={
+                            "content": msg_content,
+                            "source": item.source,
+                            "original_stimulus": item,
+                        },
+                        reason=f"Respond to message from {item.source}: {msg_content[:30]}...",
+                    )
 
         # 2. Slow Path: Deliberative / Social / Goal-driven actions
         emotional_modulation = emotional_modulation or {
@@ -128,19 +149,6 @@ class DecisionEngine:
         }
         candidate_actions = []
         for item in focus:
-            # Handle user messages
-            if isinstance(item, Stimulus) and item.type == "message":
-                candidate_actions.append(
-                    Action(
-                        name="respond_to_message",
-                        params={
-                            "source": item.source,
-                            "content": item.content,
-                        },
-                        reason=f"Respond to incoming message from {item.source}",
-                    )
-                )
-                
             # Handle internal signals (skip Hunger - it's handled in fast path)
             if isinstance(item, Signal):
                 if item.source == "Physiology" and item.content == "Hunger":
@@ -189,22 +197,6 @@ class DecisionEngine:
                         )
                     )
 
-            # Handle incoming messages from external sources
-            if isinstance(item, Stimulus) and item.type == "message":
-                msg_content = str(item.content).strip()
-                if msg_content:
-                    candidate_actions.append(
-                        Action(
-                            name="respond_to_message",
-                            params={
-                                "content": msg_content,
-                                "source": item.source,
-                                "original_stimulus": item,
-                            },
-                            reason=f"Respond to message from {item.source}: {msg_content[:30]}...",
-                        )
-                    )
-
         if not candidate_actions:
             return None
 
@@ -219,7 +211,9 @@ class DecisionEngine:
                 if action.name in {"social_interaction"}
                 else 0.0
             )
-            modulated_reward = reward + emotional_modulation["exploration_bonus"] + collaboration_bonus
+            # Priority bonus for responding to user messages
+            message_response_bonus = 1.0 if action.name == "respond_to_message" else 0.0
+            modulated_reward = reward + emotional_modulation["exploration_bonus"] + collaboration_bonus + message_response_bonus
             modulated_risk = max(0.0, risk - emotional_modulation["safety_bonus"])
             score = (modulated_reward - modulated_risk) * confidence
             alignment = self.axiology.calculate_alignment(action)
@@ -229,6 +223,7 @@ class DecisionEngine:
         if not scored_actions:
             return None
         best_score, best_action = max(scored_actions, key=lambda x: x[0])
+        logger.debug(f"[Decision] Best action: {best_action.name}, score: {best_score:.4f}, all scores: {[(a.name, s) for s, a in scored_actions]}")
         if best_score > 0.05:
             return best_action
         return None

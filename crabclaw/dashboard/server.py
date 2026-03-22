@@ -7,17 +7,51 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from clawlink.security import TokenError, decode_token, issue_token
+import jwt
 from loguru import logger
 from websockets.server import serve
 
 from crabclaw.bus.broadcaster import BroadcastManager
 from crabclaw.user.manager import UserManager
+
+
+class TokenError(Exception):
+    pass
+
+def issue_token(subject: str, keys: dict, expires_delta: timedelta = timedelta(days=7)) -> str:
+    """Issue a JWT token."""
+    payload = {
+        "sub": subject,
+        "exp": datetime.utcnow() + expires_delta,
+        "iat": datetime.utcnow(),
+    }
+    # Use the first available key or a default one if none provided
+    secret = list(keys.values())[0] if keys else "default-insecure-secret-key"
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+def decode_token(token: str, keys: dict) -> dict:
+    """Decode and verify a JWT token."""
+    try:
+        # We try to decode without verifying signature first to get the kid if we used multiple keys
+        # But for simplicity, we just try all keys or the default one
+        secrets = list(keys.values()) if keys else ["default-insecure-secret-key"]
+
+        last_error = None
+        for secret in secrets:
+            try:
+                return jwt.decode(token, secret, algorithms=["HS256"])
+            except jwt.InvalidTokenError as e:
+                last_error = e
+
+        raise last_error if last_error else jwt.InvalidTokenError("No valid keys found")
+    except Exception as e:
+        raise TokenError(str(e))
 
 
 @dataclass
@@ -118,15 +152,17 @@ class DashboardServer:
         try:
             from crabclaw.config.loader import load_config
             config = load_config()
+            # Try to get from nested config
             if hasattr(config, "security") and hasattr(config.security, "jwt_keys"):
                 return config.security.jwt_keys
-            # Fallback for older configs or different structures
+            # Try flat config
             if hasattr(config, "jwt_keys") and isinstance(config.jwt_keys, dict):
                  return config.jwt_keys
-            return {}
+            # Default fallback for local dev if not present
+            return {"default": "crabclaw-local-dev-secret-key-123"}
         except Exception as e:
             logger.error(f"Could not load JWT keys from config: {e}")
-            return {}
+            return {"default": "crabclaw-local-dev-secret-key-123"}
 
     def _send_json_response(self, handler, status_code, data):
         handler.send_response(status_code)
@@ -291,12 +327,16 @@ class DashboardServer:
                 logger.info(f"WebSocket client connected for user '{user_id}'")
 
                 await ws.send(json.dumps({"type": "hello", "data": {"ws": self.ws_url, "user_id": user_id}}, ensure_ascii=False))
-                await ws.send(json.dumps({"type": "chat_history", "messages": self._get_chat_history(user_id)}, ensure_ascii=False))
+                await ws.send(json.dumps({"type": "chat_history", "data": {"messages": self._get_chat_history(user_id)}}, ensure_ascii=False))
 
                 async def broadcast_loop():
                     while True:
-                        msg = await q.get()
-                        await ws.send(json.dumps(msg, ensure_ascii=False))
+                        try:
+                            msg = await q.get()
+                            await ws.send(json.dumps(msg, ensure_ascii=False))
+                        except Exception as e:
+                            logger.error(f"Broadcast loop error for user '{user_id}': {e}", exc_info=True)
+                            break
 
                 async def handle_messages():
                     async for msg in ws:
@@ -319,6 +359,20 @@ class DashboardServer:
                                     await self.broadcast_manager.publish(scope=user_id, message=broadcast_message)
                             elif msg_type == "get_channels":
                                 await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                            elif msg_type == "get_providers":
+                                await ws.send(
+                                    json.dumps(
+                                        {"type": "providers", "data": {"providers": self._get_providers()}},
+                                        ensure_ascii=False,
+                                    )
+                                )
+                            elif msg_type == "get_config":
+                                await ws.send(
+                                    json.dumps(
+                                        {"type": "config", "data": self._get_config()},
+                                        ensure_ascii=False,
+                                    )
+                                )
                             elif msg_type == "save_channel_config":
                                 body = data.get("data", {})
                                 saved = self.user_manager.save_channel_config(
@@ -330,9 +384,9 @@ class DashboardServer:
                                     is_active=body.get("is_active", True),
                                 )
                                 if saved is None:
-                                    await ws.send(json.dumps({"type": "channel_config_result", "ok": False, "error": "save_failed"}, ensure_ascii=False))
+                                    await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": False, "error": "save_failed"}}, ensure_ascii=False))
                                 else:
-                                    await ws.send(json.dumps({"type": "channel_config_result", "ok": True, "config": saved}, ensure_ascii=False))
+                                    await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": True, "config": saved}}, ensure_ascii=False))
                                     await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "delete_channel_config":
                                 body = data.get("data", {})
@@ -341,7 +395,7 @@ class DashboardServer:
                                     channel_type=body.get("channel_type", ""),
                                     account_id=body.get("account_id", ""),
                                 )
-                                await ws.send(json.dumps({"type": "channel_config_delete_result", "ok": ok}, ensure_ascii=False))
+                                await ws.send(json.dumps({"type": "channel_config_delete_result", "data": {"ok": ok}}, ensure_ascii=False))
                                 await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "map_identity":
                                 body = data.get("data", {})
@@ -352,7 +406,7 @@ class DashboardServer:
                                     alias=body.get("alias", ""),
                                     metadata=body.get("metadata", {}),
                                 )
-                                await ws.send(json.dumps({"type": "identity_map_result", "ok": mapped is not None, "mapping": mapped}, ensure_ascii=False))
+                                await ws.send(json.dumps({"type": "identity_map_result", "data": {"ok": mapped is not None, "mapping": mapped}}, ensure_ascii=False))
                                 await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "delete_identity_mapping":
                                 body = data.get("data", {})
@@ -360,7 +414,7 @@ class DashboardServer:
                                     mapping_id=body.get("mapping_id", ""),
                                     user_id=user_id,
                                 )
-                                await ws.send(json.dumps({"type": "identity_delete_result", "ok": ok}, ensure_ascii=False))
+                                await ws.send(json.dumps({"type": "identity_delete_result", "data": {"ok": ok}}, ensure_ascii=False))
                                 await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "get_identity_mappings":
                                 await ws.send(
@@ -372,11 +426,167 @@ class DashboardServer:
                                         ensure_ascii=False,
                                     )
                                 )
+                            elif msg_type == "update_settings":
+                                body = data.get("data", {})
+                                provider_keys = body.get("provider_keys", {})
+                                llm_routes = body.get("llm_routes", {})
+                                success = True
+                                error = None
+
+                                try:
+                                    from crabclaw.config.loader import load_config, save_config
+                                    from crabclaw.config.schema import ProviderConfig
+                                    config = load_config()
+
+                                    # Handle provider keys update
+                                    for provider_name, provider_data in provider_keys.items():
+                                        if isinstance(provider_name, str) and provider_name.startswith("user:"):
+                                            user_name = provider_name[len("user:"):].strip()
+                                            if not user_name:
+                                                success = False
+                                                error = "Invalid user provider name"
+                                                continue
+
+                                            user_providers = getattr(config.providers, "user_providers", {}) or {}
+                                            provider = user_providers.get(user_name) or ProviderConfig()
+
+                                            if "api_key" in provider_data:
+                                                provider.api_key = provider_data["api_key"]
+                                            elif "apiKey" in provider_data:
+                                                provider.api_key = provider_data["apiKey"]
+
+                                            if "api_base" in provider_data:
+                                                provider.api_base = provider_data["api_base"]
+                                            elif "apiBase" in provider_data:
+                                                provider.api_base = provider_data["apiBase"]
+
+                                            if "model" in provider_data:
+                                                provider.model = provider_data["model"]
+
+                                            user_providers[user_name] = provider
+                                            config.providers.user_providers = user_providers
+                                            continue
+
+                                        if hasattr(config.providers, provider_name):
+                                            provider = getattr(config.providers, provider_name)
+                                            if "api_key" in provider_data:
+                                                provider.api_key = provider_data["api_key"]
+                                            elif "apiKey" in provider_data:
+                                                provider.api_key = provider_data["apiKey"]
+
+                                            if "api_base" in provider_data:
+                                                provider.api_base = provider_data["api_base"]
+                                            elif "apiBase" in provider_data:
+                                                provider.api_base = provider_data["apiBase"]
+
+                                            if "model" in provider_data:
+                                                provider.model = provider_data["model"]
+                                        else:
+                                            success = False
+                                            error = f"Unknown provider key: {provider_name}"
+
+                                    # Handle LLM routes update
+                                    if llm_routes:
+                                        if not hasattr(config, "llm_routes"):
+                                            config.llm_routes = {}
+                                        for callpoint, provider_name in llm_routes.items():
+                                            if provider_name:
+                                                config.llm_routes[callpoint] = provider_name
+                                            else:
+                                                # Remove the route if provider_name is empty
+                                                config.llm_routes.pop(callpoint, None)
+                                        logger.warning(f"Updated LLM routes: {llm_routes}")
+
+                                    save_config(config)
+                                    logger.warning(f"Updated provider settings for: {list(provider_keys.keys())}")
+                                except Exception as e:
+                                    success = False
+                                    error = str(e)
+                                    logger.warning(f"Failed to update provider settings: {e}")
+
+                                await ws.send(
+                                    json.dumps(
+                                        {
+                                            "type": "update_settings_result",
+                                            "data": {"success": success, "error": error},
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                )
+                            elif msg_type == "test_provider":
+                                body = data.get("data", {})
+                                provider_id = body.get("provider_id", "")
+                                # Support both camelCase and snake_case from frontend
+                                api_key = body.get("api_key", "") or body.get("apiKey", "")
+                                api_base = body.get("api_base", "") or body.get("apiBase", "")
+                                model = body.get("model", "")
+                                success = False
+                                error = "Unknown error"
+
+                                try:
+                                    from crabclaw.providers.custom_provider import CustomProvider
+                                    from crabclaw.providers.litellm_provider import LiteLLMProvider
+                                    from crabclaw.providers.openai_codex_provider import (
+                                        OpenAICodexProvider,
+                                    )
+
+                                    logger.warning(f"Received test_provider request: provider_id={provider_id}, api_key={api_key[:4]}..., api_base={api_base}, model={model}")
+
+                                    # Log the test request details
+                                    logger.warning(f"Testing provider: {provider_id}, api_key: {api_key[:4]}..., api_base: {api_base}, model: {model}")
+
+                                    if provider_id == "custom" or (isinstance(provider_id, str) and provider_id.startswith("user:")):
+                                        provider = CustomProvider(
+                                            api_key=api_key,
+                                            api_base=api_base or "http://localhost:8000/v1",
+                                            default_model=model or "test",
+                                        )
+                                    elif provider_id == "openai_codex" or (model and model.startswith("openai-codex/")):
+                                        provider = OpenAICodexProvider(default_model=model or "test")
+                                    else:
+                                        provider = LiteLLMProvider(
+                                            api_key=api_key,
+                                            api_base=api_base,
+                                            default_model=model or "test",
+                                            provider_name=provider_id,
+                                        )
+
+                                    # Try a simple completion to test the connection
+                                    logger.warning(f"Testing connection with provider: {provider_id}")
+                                    result = await provider.chat(
+                                        messages= [{"role": "user", "content": "test"}],
+                                        max_tokens=5,
+                                    )
+                                    if result and getattr(result, "finish_reason", None) != "error":
+                                        success = True
+                                        error = None
+                                        logger.warning(f"Provider test successful for: {provider_id}")
+                                    else:
+                                        error = (getattr(result, "content", None) or "No response from provider") if result else "No response from provider"
+                                        logger.warning(f"Provider test failed for {provider_id}: {error}")
+                                except Exception as e:
+                                    error = str(e)
+                                    logger.warning(f"Provider test failed for {provider_id}: {e}")
+
+                                logger.warning(f"Sending test_provider_result: success={success}, error={error}, provider_id={provider_id}")
+                                await ws.send(
+                                    json.dumps(
+                                        {
+                                            "type": "test_provider_result",
+                                            "data": {"success": success, "error": error, "provider_id": provider_id},
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                )
 
                             # ... other non-chat message types
 
                         except json.JSONDecodeError:
-                            pass
+                            logger.warning(f"Invalid JSON received: {msg[:100]}")
+                        except KeyError as e:
+                            logger.warning(f"Missing expected field in message: {e}")
+                        except Exception as e:
+                            logger.error(f"Error processing message: {e}", exc_info=True)
 
                 await asyncio.gather(broadcast_loop(), handle_messages())
 
@@ -420,14 +630,34 @@ class DashboardServer:
                     # At least one of these should be present to consider it ready
                     status = "ok" if (p.api_key or p.api_base) else "error"
 
+                # Get model: only use provider-specific model, no default fallback
+                model = getattr(p, "model", "")
+
                 providers.append({
                     "name": spec.label,
                     "config_name": spec.name,
-                    "model": getattr(p, "model", ""),
+                    "model": model,
+                    "provider_model": model,  # For frontend compatibility
                     "api_base": getattr(p, "api_base", ""),
                     "api_key": getattr(p, "api_key", ""),
                     "status": status
                 })
+
+            user_providers = getattr(config.providers, "user_providers", {}) or {}
+            for user_name, p in user_providers.items():
+                status = "ok" if (getattr(p, "api_key", "") or getattr(p, "api_base", "")) else "error"
+                model = getattr(p, "model", "") or ""
+                providers.append(
+                    {
+                        "name": user_name,
+                        "config_name": f"user:{user_name}",
+                        "model": model,
+                        "provider_model": model,
+                        "api_base": getattr(p, "api_base", "") or "",
+                        "api_key": getattr(p, "api_key", "") or "",
+                        "status": status,
+                    }
+                )
             return providers
         except Exception as e:
             logger.error("Failed to get providers: %s", e)
@@ -513,7 +743,9 @@ class DashboardServer:
             # Get model safely
             model = ""
             try:
-                model = config.agents.defaults.model
+                # Don't use config.agents.defaults.model, only use provider-specific models
+                # model = config.agents.defaults.model
+                pass
             except Exception as e:
                 logger.warning("Failed to get model: %s", e)
 
@@ -777,7 +1009,7 @@ class DashboardServer:
                     return LiteLLMProvider(
                         api_key=provider_config.api_key,
                         api_base=getattr(provider_config, 'api_base', None),
-                        default_model=config.agents.defaults.model,
+                        default_model=getattr(provider_config, 'model', ''),
                         provider_name=provider_name
                     )
 
@@ -786,7 +1018,7 @@ class DashboardServer:
             return LiteLLMProvider(
                 api_key=provider_config.api_key,
                 api_base=provider_config.api_base,
-                default_model=config.agents.defaults.model,
+                default_model=getattr(provider_config, 'model', ''),
             )
         except Exception as e:
             logger.error("Failed to get LLM provider: %s", e)
@@ -819,6 +1051,7 @@ class DashboardServer:
         if self._ws_server:
             with contextlib.suppress(BaseException):
                 self._ws_server.close()
+                await self._ws_server.wait_closed()
             self._ws_server = None
 
         if self._httpd:
@@ -826,3 +1059,8 @@ class DashboardServer:
                 self._httpd.shutdown()
                 self._httpd.server_close()
             self._httpd = None
+
+        if self._http_thread:
+            with contextlib.suppress(BaseException):
+                self._http_thread.join(timeout=2.0)
+            self._http_thread = None

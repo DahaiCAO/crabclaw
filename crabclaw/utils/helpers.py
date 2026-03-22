@@ -141,9 +141,24 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
         _write(item, workspace / rel.name)
 
     _write(None, workspace / "memory" / "HISTORY.md")
-    (workspace / "skills").mkdir(exist_ok=True)
-    (workspace / "cron").mkdir(exist_ok=True)
-    (workspace / "history").mkdir(exist_ok=True)
+    
+    # Ensure all global workspace scaffold directories exist
+    global_dirs = [
+        "skills",
+        "cron",
+        "history",
+        "memory",
+        "users",
+        "sessions",
+        "identities",
+        "portfolios",
+        "prompts",
+        "nature",
+        "social",
+        "tools"
+    ]
+    for d in global_dirs:
+        (workspace / d).mkdir(parents=True, exist_ok=True)
 
     if added and not silent:
         from rich.console import Console

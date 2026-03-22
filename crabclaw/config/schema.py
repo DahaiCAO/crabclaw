@@ -250,6 +250,7 @@ class ProvidersConfig(Base):
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow API gateway
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine API gateway
+    aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
     user_providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -377,7 +378,7 @@ class Config(BaseSettings):
             p = getattr(self.providers, forced, None)
             return (p, forced) if p else (None, None)
 
-        model_lower = (model or self.agents.defaults.model).lower()
+        model_lower = (model or "").lower()
         model_normalized = model_lower.replace("-", "_")
         model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
         normalized_prefix = model_prefix.replace("-", "_")
@@ -558,7 +559,7 @@ class Config(BaseSettings):
             if p_forced is None:
                 return None
             spec = find_by_name(forced)
-            model = (getattr(p_forced, "model", "") or "").strip() or self.agents.defaults.model
+            model = (getattr(p_forced, "model", "") or "").strip() or ""
             api_base = getattr(p_forced, "api_base", None) or None
             if not api_base and spec and spec.default_api_base:
                 api_base = spec.default_api_base
@@ -584,7 +585,7 @@ class Config(BaseSettings):
                 provider_name=forced,
             ), provider_name=forced, default_model=model)
 
-        model = self.agents.defaults.model
+        model = ""  # Don't use self.agents.defaults.model, require explicit model or provider
         if not model and allow_missing:
             return None
         provider_name = self.get_provider_name(model) or "custom"

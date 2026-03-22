@@ -168,7 +168,6 @@
       "channels_enabled": "[green]✓[/green] 已启用频道: {channels}",
       "no_channels": "[yellow]警告: 未启用任何频道[/yellow]",
       "cron_jobs": "[green]✓[/green] 定时任务: {jobs} 个已计划任务",
-      "heartbeat": "[green]✓[/green] 心跳: 每 {interval}秒",
       "shutting_down": "正在关闭..."
     },
     "chat": {

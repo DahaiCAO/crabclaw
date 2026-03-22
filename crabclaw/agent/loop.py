@@ -16,14 +16,22 @@ import hashlib
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from clawlink.protocol.envelope import MessageEnvelope
-from clawlink.transport import HTTPTransport
 from loguru import logger
 
 from crabclaw.bus.events import InboundMessage, OutboundMessage
 from crabclaw.user.manager import UserManager
+
+# Optional ClawLink support for social interactions
+try:
+    from clawlink.protocol.envelope import MessageEnvelope
+    from clawlink.transport import HTTPTransport
+    CLAWLINK_AVAILABLE = True
+except ImportError:
+    CLAWLINK_AVAILABLE = False
+    MessageEnvelope = Any  # Type alias for when clawlink is not installed
+    HTTPTransport = Any
 
 if TYPE_CHECKING:
     from crabclaw.bus.broadcaster import BroadcastManager
@@ -53,6 +61,10 @@ class IOProcessor:
             self._workspace = None
         else:
             self._workspace = getattr(config, "workspace_path", None)
+
+        # Hard override if library is missing
+        if not CLAWLINK_AVAILABLE:
+            self._clawlink_enabled = False
 
         # Allow env var override for backward compatibility
         env_enabled = os.getenv("SAPIENS_CLAWLINK_ENABLED")

@@ -275,7 +275,7 @@ More details: [SECURITY.md](SECURITY.md)
 | Command                                  | Description                        |
 | ---------------------------------------- | ---------------------------------- |
 | `crabclaw onboard`                       | Init config/workspace and defaults |
-| `crabclaw agent`                         | Interactive chat                   |
+| `crabclaw chat`                         | Interactive chat                   |
 | `crabclaw gateway`                       | Start gateway service              |
 | `crabclaw dashboard`                     | Start dashboard service            |
 | `crabclaw status`                        | Print runtime status               |

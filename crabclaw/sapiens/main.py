@@ -10,14 +10,13 @@ import time
 from ..utils.logging_config import setup_logging
 from .agent import AgentSapiens
 
-# Set up logging with INFO level
-setup_logging(level="INFO")
-
 
 def main():
     """
     Initializes and runs the AgentSapiens.
     """
+    # Set up logging with INFO level (only when running standalone)
+    setup_logging(level="INFO")
     print("Initializing AgentSapiens...")
     # Define the agent's innate personality drives (Six Desires)
     personality = {

@@ -69,15 +69,27 @@ class UserManager:
 
     def _ensure_portfolio_scaffold(self, user: UserProfile) -> Path:
         portfolio_dir = ensure_dir(self.get_portfolio_dir(user.user_id))
-        ensure_dir(portfolio_dir / "history")
-        ensure_dir(portfolio_dir / "memory")
-        ensure_dir(portfolio_dir / "channels")
-        ensure_dir(portfolio_dir / "assets")
-        ensure_dir(portfolio_dir / "assets" / "images")
-        ensure_dir(portfolio_dir / "assets" / "videos")
-        ensure_dir(portfolio_dir / "assets" / "files")
-        ensure_dir(portfolio_dir / "channels" / "email")
-        ensure_dir(portfolio_dir / "channels" / "feishu")
+        
+        # Core scaffold directories
+        dirs_to_create = [
+            "history",
+            "memory",
+            "channels",
+            "channels/email",
+            "channels/feishu",
+            "channels/slack",
+            "channels/telegram",
+            "channels/discord",
+            "channels/dingtalk",
+            "assets",
+            "assets/images",
+            "assets/videos",
+            "assets/files",
+        ]
+        
+        for d in dirs_to_create:
+            ensure_dir(portfolio_dir / d)
+            
         summary_file = portfolio_dir / "portfolio.json"
         if not summary_file.exists():
             summary_file.write_text(
