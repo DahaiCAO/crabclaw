@@ -1022,12 +1022,13 @@ class DashboardServer:
             workspace = Path(workspace_path)
             files = []
 
-            # Directories to scan for md files
-            dirs_to_scan = ["prompts", "memory", "social", "nature"]
+            # Directories to scan for md and py files
+            dirs_to_scan = ["prompts", "memory", "social", "nature", "crabclaw"]
 
             for dir_name in dirs_to_scan:
                 dir_path = workspace / dir_name
                 if dir_path.exists() and dir_path.is_dir():
+                    # Scan for .md files
                     for file_path in dir_path.glob("*.md"):
                         stat = file_path.stat()
                         files.append({
@@ -1035,6 +1036,18 @@ class DashboardServer:
                             "size": stat.st_size,
                             "mtime": stat.st_mtime
                         })
+                    # Scan for .py files in crabclaw directory
+                    if dir_name == "crabclaw":
+                        for file_path in dir_path.rglob("*.py"):
+                            # Only include files in specific subdirectories or key files
+                            if any(part in str(file_path) for part in ["sapiens", "agent", "config", "providers"]):
+                                stat = file_path.stat()
+                                rel_path = file_path.relative_to(workspace)
+                                files.append({
+                                    "name": str(rel_path),
+                                    "size": stat.st_size,
+                                    "mtime": stat.st_mtime
+                                })
 
             # Also load other md files from workspace root
             for file_path in workspace.glob("*.md"):
@@ -1058,21 +1071,21 @@ class DashboardServer:
 
             workspace = Path(workspace_path)
 
-            # Handle files with directory prefix (e.g., "memory/file.md")
+            # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
             if "/" in file_name:
                 file_path = workspace / file_name
-                if file_path.exists() and file_path.suffix == ".md":
+                if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     return file_path.read_text(encoding="utf-8")
 
             # Try to find file in known directories
             for dir_name in ["prompts", "memory", "social", "nature"]:
                 file_path = workspace / dir_name / file_name
-                if file_path.exists() and file_path.suffix == ".md":
+                if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     return file_path.read_text(encoding="utf-8")
 
             # Then try workspace root
             file_path = workspace / file_name
-            if file_path.exists() and file_path.suffix == ".md":
+            if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
                 return file_path.read_text(encoding="utf-8")
 
             return ""
@@ -1088,10 +1101,10 @@ class DashboardServer:
 
             workspace = Path(workspace_path)
 
-            # Handle files with directory prefix (e.g., "memory/file.md")
+            # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
             if "/" in file_name:
                 file_path = workspace / file_name
-                if file_path.suffix == ".md":
+                if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(content, encoding="utf-8")
                     return True
@@ -1099,14 +1112,14 @@ class DashboardServer:
             # Try to save in known directories
             for dir_name in ["prompts", "memory", "social", "nature"]:
                 file_path = workspace / dir_name / file_name
-                if file_path.suffix == ".md":
+                if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(content, encoding="utf-8")
                     return True
 
             # Then try workspace root
             file_path = workspace / file_name
-            if file_path.suffix == ".md":
+            if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                 file_path.write_text(content, encoding="utf-8")
                 return True
 
