@@ -829,8 +829,18 @@ class DashboardServer:
 
     def _get_config(self) -> dict:
         try:
-            from crabclaw.config.loader import load_config
+            from crabclaw.config.loader import load_config, get_config_path
             config = load_config()
+
+            # Load raw config content
+            raw_config_content = ""
+            try:
+                config_path = get_config_path()
+                if config_path.exists():
+                    raw_config_content = config_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Failed to read raw config file: {e}")
+
 
             # Get providers catalog
             providers_catalog = []
@@ -920,7 +930,8 @@ class DashboardServer:
                 "channels": channels,
                 "providers_catalog": providers_catalog,
                 "llm_callpoints": llm_callpoints,
-                "llm_routes": llm_routes
+                "llm_routes": llm_routes,
+                "raw_config": raw_config_content
             }
             logger.debug("Get config: %s", config_data)
             return config_data

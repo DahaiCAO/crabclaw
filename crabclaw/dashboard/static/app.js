@@ -1586,7 +1586,12 @@ function renderConfig(config) {
   const configPre = document.getElementById('config-pre');
   if (!configPre) return;
   
-  configPre.textContent = JSON.stringify(config, null, 2);
+  // Display the raw config content if available, otherwise the whole object
+  if (config && config.raw_config) {
+    configPre.textContent = config.raw_config;
+  } else {
+    configPre.textContent = JSON.stringify(config, null, 2);
+  }
 }
 
 const _buffer = [];
