@@ -20,6 +20,7 @@ from websockets.server import serve
 from crabclaw.bus.broadcaster import BroadcastManager
 from crabclaw.user.manager import UserManager
 from crabclaw.session.manager import SessionManager
+from crabclaw.i18n import get_supported_languages
 
 
 class TokenError(Exception):
@@ -439,6 +440,16 @@ class DashboardServer:
                                         ensure_ascii=False,
                                     )
                                 )
+                            elif msg_type == "get_translations":
+                                body = data.get("data", {})
+                                lang = body.get("lang", "en")
+                                translations = self._get_translations(lang)
+                                await ws.send(
+                                    json.dumps(
+                                        {"type": "translations", "data": {"lang": lang, "translations": translations}},
+                                        ensure_ascii=False,
+                                    )
+                                )
                             elif msg_type == "save_channel_config":
                                 body = data.get("data", {})
                                 saved = self.user_manager.save_channel_config(
@@ -562,6 +573,11 @@ class DashboardServer:
                                                 # Remove the route if provider_name is empty
                                                 config.llm_routes.pop(callpoint, None)
                                         logger.warning(f"Updated LLM routes: {llm_routes}")
+
+                                    # Handle language update
+                                    if "language" in body:
+                                        config.language = body["language"]
+                                        logger.warning(f"Updated language to: {config.language}")
 
                                     save_config(config)
                                     logger.warning(f"Updated provider settings for: {list(provider_keys.keys())}")
@@ -957,6 +973,17 @@ class DashboardServer:
                 ],
                 "llm_routes": {}
             }
+
+    def _get_translations(self, lang: str) -> dict:
+        """Get translations for a specific language."""
+        try:
+            from crabclaw.i18n.translator import Translator
+            translator = Translator(lang)
+            # Return the translations dict for the language
+            return translator.translations.get(lang, {})
+        except Exception as e:
+            logger.error(f"Failed to load translations for {lang}: {e}")
+            return {}
 
     def _get_channel_catalog(self) -> list[dict[str, Any]]:
         try:
