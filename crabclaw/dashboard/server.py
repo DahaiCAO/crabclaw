@@ -440,6 +440,14 @@ class DashboardServer:
                                         ensure_ascii=False,
                                     )
                                 )
+                            elif msg_type == "get_skills":
+                                skills = self._get_skills()
+                                await ws.send(
+                                    json.dumps(
+                                        {"type": "skills", "data": skills},
+                                        ensure_ascii=False,
+                                    )
+                                )
                             elif msg_type == "get_translations":
                                 body = data.get("data", {})
                                 lang = body.get("lang", "en")
@@ -826,6 +834,49 @@ class DashboardServer:
         except Exception as e:
             logger.error("Failed to get providers: %s", e)
             return [{"name": "Error", "status": "error", "model": str(e)}]
+
+    def _get_skills(self) -> dict:
+        """Get all available skills (built-in and workspace)."""
+        try:
+            from crabclaw.config.loader import load_config
+            from crabclaw.agent.skills import SkillsLoader
+
+            config = load_config()
+            workspace = config.workspace_path
+
+            # Get the built-in skills directory (crabclaw/skills)
+            builtin_skills_dir = Path(__file__).parent.parent / "skills"
+
+            # Create loader
+            loader = SkillsLoader(workspace, builtin_skills_dir=builtin_skills_dir)
+
+            # Get all skills without filtering
+            all_skills = loader.list_skills(filter_unavailable=False)
+
+            builtin_skills = []
+            workspace_skills = []
+
+            for skill in all_skills:
+                meta = loader.get_skill_metadata(skill["name"]) or {}
+                skill_info = {
+                    "name": skill["name"],
+                    "description": meta.get("description", ""),
+                    "path": skill["path"],
+                    "source": skill["source"]
+                }
+                if skill["source"] == "builtin":
+                    builtin_skills.append(skill_info)
+                else:
+                    workspace_skills.append(skill_info)
+
+            logger.warning(f"_get_skills: builtin={len(builtin_skills)}, workspace={len(workspace_skills)}")
+            return {
+                "built_in": builtin_skills,
+                "workspace": workspace_skills
+            }
+        except Exception as e:
+            logger.error(f"Failed to get skills: {e}")
+            return {"built_in": [], "workspace": []}
 
     def _get_config(self) -> dict:
         try:
