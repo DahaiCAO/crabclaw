@@ -548,6 +548,37 @@ body[data-theme="light"] {
   min-height: 0;
   overflow-y: auto;
 }
+
+#section-config .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#config-pre {
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+
+#config-pre::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+#config-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#config-pre::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+#config-pre::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
 .span2{grid-column: 1 / span 2; min-height: 220px;}
 .card-title{
   font-weight:700;
@@ -2036,6 +2067,50 @@ input:checked + .slider-round:before {
   margin-top: 16px;
 }
 
+#section-channels .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#section-channels .channels-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: flex-start;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+#section-channels .channels-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+#section-channels .channels-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#section-channels .channels-content::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+#section-channels .channels-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.channel-overview {
+  flex: 1 1 100%;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--card);
+  font-size: 13px;
+}
+
 .channel-item {
   flex: 1 1 300px;
   min-width: 250px;
@@ -2109,8 +2184,161 @@ input:checked + .slider-round:before {
 
 .channel-item-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
+}
+
+.channel-item-wide {
+  flex-basis: 100%;
+}
+
+.channel-section-title {
+  margin-top: 14px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.channel-field {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.channel-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.channel-field-meta {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--muted);
+}
+
+.channel-field-help {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.channel-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.channel-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.channel-badge.ok {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+.channel-badge.warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.channel-badge.muted {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+.channel-instance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.channel-instance {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.channel-instance.compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.channel-instance.new-instance {
+  margin-top: 4px;
+}
+
+.channel-instance-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.channel-instance-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.channel-instance-meta {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.channel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.channel-empty {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.btn.small.secondary {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.btn.small.danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .config-input {

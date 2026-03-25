@@ -40,6 +40,59 @@ class UserManager:
     def _get_channel_configs_file(self, user_id: str, channel_type: str) -> Path:
         return self.get_portfolio_dir(user_id) / "channels" / f"{safe_filename(channel_type)}.json"
 
+    def _load_channel_records(self, user_id: str, channel_type: str) -> list[dict[str, Any]]:
+        file_path = self._get_channel_configs_file(user_id, channel_type)
+        if not file_path.exists():
+            return []
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load channel config file {file_path}: {e}")
+            return []
+
+        if not isinstance(payload, list):
+            return []
+
+        records: list[dict[str, Any]] = []
+        for idx, item in enumerate(payload):
+            if not isinstance(item, dict):
+                continue
+            records.append(self._normalize_channel_record(channel_type, item, idx))
+        return records
+
+    def _save_channel_records(self, user_id: str, channel_type: str, records: list[dict[str, Any]]) -> None:
+        file_path = self._get_channel_configs_file(user_id, channel_type)
+        normalized = [
+            self._normalize_channel_record(channel_type, item, idx)
+            for idx, item in enumerate(records)
+            if isinstance(item, dict)
+        ]
+        file_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _normalize_channel_record(
+        self,
+        channel_type: str,
+        record: dict[str, Any],
+        index: int = 0,
+    ) -> dict[str, Any]:
+        now = datetime.now().isoformat()
+        config = record.get("config")
+        is_active = bool(record.get("is_active", False))
+        runtime_status = str(record.get("runtime_status") or ("running" if is_active else "stopped"))
+        return {
+            "account_id": str(record.get("account_id") or uuid4()),
+            "name": str(record.get("name") or f"{channel_type}-{index + 1}").strip() or f"{channel_type}-{index + 1}",
+            "channel_type": str(record.get("channel_type") or channel_type).strip().lower(),
+            "config": config if isinstance(config, dict) else {},
+            "is_active": is_active,
+            "runtime_status": runtime_status,
+            "created_at": record.get("created_at") or now,
+            "updated_at": record.get("updated_at") or now,
+            "started_at": record.get("started_at"),
+            "stopped_at": record.get("stopped_at"),
+            "last_error": str(record.get("last_error") or ""),
+        }
+
     def _load_identity_mappings(self) -> list[dict[str, Any]]:
         if not self.identity_file.exists():
             return []
@@ -359,26 +412,12 @@ class UserManager:
             return {}
         self._ensure_portfolio_scaffold(user)
         if channel_type:
-            file_path = self._get_channel_configs_file(user_id, channel_type)
-            if not file_path.exists():
-                return {channel_type: []}
-            try:
-                records = json.loads(file_path.read_text(encoding="utf-8"))
-                if isinstance(records, list):
-                    return {channel_type: records}
-            except Exception:
-                return {channel_type: []}
-            return {channel_type: []}
+            return {channel_type: self._load_channel_records(user_id, channel_type)}
 
         result: Dict[str, list[dict[str, Any]]] = {}
         channels_dir = self.get_portfolio_dir(user_id) / "channels"
         for f in channels_dir.glob("*.json"):
-            ch = f.stem
-            try:
-                records = json.loads(f.read_text(encoding="utf-8"))
-                result[ch] = records if isinstance(records, list) else []
-            except Exception:
-                result[ch] = []
+            result[f.stem] = self._load_channel_records(user_id, f.stem)
         return result
 
     def save_channel_config(
@@ -395,52 +434,82 @@ class UserManager:
             return None
         self._ensure_portfolio_scaffold(user)
         channel_type = str(channel_type).strip().lower()
-        file_path = self._get_channel_configs_file(user_id, channel_type)
-        records: list[dict[str, Any]]
-        if file_path.exists():
-            try:
-                loaded = json.loads(file_path.read_text(encoding="utf-8"))
-                records = loaded if isinstance(loaded, list) else []
-            except Exception:
-                records = []
-        else:
-            records = []
+        records = self._load_channel_records(user_id, channel_type)
         now = datetime.now().isoformat()
         target_id = account_id or str(uuid4())
         payload = {
             "account_id": target_id,
             "name": name.strip() or f"{channel_type}-{len(records) + 1}",
             "channel_type": channel_type,
-            "config": config,
+            "config": config if isinstance(config, dict) else {},
             "is_active": bool(is_active),
+            "runtime_status": "running" if is_active else "stopped",
             "updated_at": now,
+            "last_error": "",
         }
         replaced = False
         for idx, item in enumerate(records):
             if item.get("account_id") == target_id:
                 payload["created_at"] = item.get("created_at", now)
+                payload["started_at"] = item.get("started_at")
+                payload["stopped_at"] = item.get("stopped_at")
+                if bool(item.get("is_active")) != bool(is_active):
+                    if is_active:
+                        payload["started_at"] = now
+                    else:
+                        payload["stopped_at"] = now
                 records[idx] = payload
                 replaced = True
                 break
         if not replaced:
             payload["created_at"] = now
+            payload["started_at"] = now if is_active else None
+            payload["stopped_at"] = None if is_active else now
             records.append(payload)
-        file_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-        return payload
+        self._save_channel_records(user_id, channel_type, records)
+        return self._normalize_channel_record(channel_type, payload)
+
+    def set_channel_config_active(
+        self,
+        user_id: str,
+        channel_type: str,
+        account_id: str,
+        is_active: bool,
+    ) -> dict[str, Any] | None:
+        user = self.get_user_by_id(user_id)
+        if not user:
+            return None
+        channel_type = str(channel_type).strip().lower()
+        records = self._load_channel_records(user_id, channel_type)
+        now = datetime.now().isoformat()
+        for idx, item in enumerate(records):
+            if item.get("account_id") != account_id:
+                continue
+            item["is_active"] = bool(is_active)
+            item["runtime_status"] = "running" if is_active else "stopped"
+            item["updated_at"] = now
+            item["last_error"] = ""
+            if is_active:
+                item["started_at"] = now
+            else:
+                item["stopped_at"] = now
+            records[idx] = self._normalize_channel_record(channel_type, item, idx)
+            self._save_channel_records(user_id, channel_type, records)
+            return records[idx]
+        return None
 
     def delete_channel_config(self, user_id: str, channel_type: str, account_id: str) -> bool:
         user = self.get_user_by_id(user_id)
         if not user:
             return False
+        channel_type = str(channel_type).strip().lower()
         file_path = self._get_channel_configs_file(user_id, channel_type)
         if not file_path.exists():
             return False
         try:
-            records = json.loads(file_path.read_text(encoding="utf-8"))
-            if not isinstance(records, list):
-                return False
+            records = self._load_channel_records(user_id, channel_type)
             remain = [item for item in records if item.get("account_id") != account_id]
-            file_path.write_text(json.dumps(remain, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._save_channel_records(user_id, channel_type, remain)
             return len(remain) != len(records)
         except Exception:
             return False

@@ -165,6 +165,7 @@ let currentDiffHunks = [];
 let currentDiffLines = [];
 let currentHunkIndex = 0;
 let currentHunkDecisions = {};
+let channelsRequestTimer = null;
 
 // Chat interface elements
 const chatMessages = qs("chat-messages");
@@ -882,6 +883,16 @@ function loadChannels() {
   if (!channelsList) return;
   
   if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+    channelsList.innerHTML = '<div class="channel-item"><span class="channel-status loading"></span><span class="channel-name">Loading...</span></div>';
+    if (channelsRequestTimer) {
+      clearTimeout(channelsRequestTimer);
+      channelsRequestTimer = null;
+    }
+    channelsRequestTimer = setTimeout(() => {
+      const current = document.getElementById('channels-list');
+      if (!current) return;
+      current.innerHTML = '<div class="channel-item"><span class="channel-status error"></span><span class="channel-name">频道数据加载超时，请刷新页面并重启 dashboard 服务</span></div>';
+    }, 3000);
     window.ws.send(JSON.stringify({ type: 'get_channels' }));
   } else {
     channelsList.innerHTML = '<div class="channel-item"><span class="channel-status error"></span><span class="channel-name">WebSocket not connected</span></div>';
@@ -1298,7 +1309,7 @@ function coerceConfigValue(rawValue, typeText) {
   return value;
 }
 
-function renderChannels(payload) {
+function renderChannelsLegacy(payload) {
   const container = document.getElementById('channels-list');
   if (!container) return;
   const channels = Array.isArray(payload) ? payload : (payload?.channels || []);
@@ -1522,6 +1533,506 @@ function renderChannels(payload) {
     editor.appendChild(saveBtn);
     item.appendChild(editor);
     container.appendChild(item);
+  });
+}
+
+function serializeConfigValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (error) {
+      return '';
+    }
+  }
+  return String(value);
+}
+
+function createChannelFieldControl(paramName, paramInfo, currentValue) {
+  const typeText = String(paramInfo?.type || 'str');
+  const normalizedType = typeText.toLowerCase();
+
+  const field = document.createElement('div');
+  field.className = 'channel-field';
+
+  const label = document.createElement('label');
+  label.className = 'channel-field-label';
+  label.textContent = `${paramName}${paramInfo?.required ? ' *' : ''}`;
+  field.appendChild(label);
+
+  const meta = document.createElement('div');
+  meta.className = 'channel-field-meta';
+  meta.textContent = typeText;
+  field.appendChild(meta);
+
+  let input;
+  if (normalizedType.includes('bool')) {
+    input = document.createElement('select');
+    ['true', 'false'].forEach((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      input.appendChild(option);
+    });
+    const boolValue = typeof currentValue === 'boolean'
+      ? currentValue
+      : String(currentValue ?? paramInfo?.default ?? '').toLowerCase() === 'true';
+    input.value = boolValue ? 'true' : 'false';
+  } else if (normalizedType.includes('list') || normalizedType.includes('dict') || normalizedType.includes('json')) {
+    input = document.createElement('textarea');
+    input.rows = 4;
+    input.value = serializeConfigValue(currentValue !== undefined ? currentValue : paramInfo?.default);
+    input.placeholder = normalizedType.includes('list') ? '["value1", "value2"]' : '{"key": "value"}';
+  } else {
+    input = document.createElement('input');
+    input.type = normalizedType.includes('int') || normalizedType.includes('float') || normalizedType.includes('double')
+      ? 'number'
+      : (/(password|secret|token|key)/i.test(paramName) ? 'password' : 'text');
+    const sourceValue = currentValue !== undefined ? currentValue : paramInfo?.default;
+    if (sourceValue !== undefined && sourceValue !== null && sourceValue !== '') {
+      input.value = serializeConfigValue(sourceValue);
+    }
+    input.placeholder = `请输入 ${paramName}`;
+  }
+
+  input.className = 'config-input';
+  field.appendChild(input);
+
+  if (paramInfo?.description) {
+    const help = document.createElement('div');
+    help.className = 'channel-field-help';
+    help.textContent = paramInfo.description;
+    field.appendChild(help);
+  }
+
+  return {
+    name: paramName,
+    info: paramInfo || {},
+    element: field,
+    read() {
+      if (normalizedType.includes('bool')) {
+        return input.value === 'true';
+      }
+      return coerceConfigValue(input.value, typeText);
+    },
+  };
+}
+
+function buildChannelConfigPayload(controls) {
+  const config = {};
+  const missing = [];
+
+  controls.forEach((control) => {
+    const value = control.read();
+    const isEmpty = value === '' || value === null || value === undefined;
+    if (isEmpty) {
+      if (control.info?.required) missing.push(control.name);
+      return;
+    }
+    config[control.name] = value;
+  });
+
+  if (missing.length) {
+    showNotification(`请填写必填参数: ${missing.join(', ')}`, 'warning');
+    return null;
+  }
+  return config;
+}
+
+function sendChannelConfig(channelName, accountId, name, controls, isActive) {
+  if (!window.ws || window.ws.readyState !== WebSocket.OPEN) {
+    showNotification('WebSocket not connected', 'error');
+    return;
+  }
+
+  const config = buildChannelConfigPayload(controls);
+  if (!config) return;
+
+  window.ws.send(JSON.stringify({
+    type: 'save_channel_config',
+    data: {
+      channel_type: channelName,
+      account_id: accountId || null,
+      name: (name || '').trim(),
+      config,
+      is_active: Boolean(isActive),
+    },
+  }));
+}
+
+function setChannelConfigActive(channelName, accountId, isActive) {
+  if (!window.ws || window.ws.readyState !== WebSocket.OPEN) {
+    showNotification('WebSocket not connected', 'error');
+    return;
+  }
+  window.ws.send(JSON.stringify({
+    type: 'set_channel_config_active',
+    data: {
+      channel_type: channelName,
+      account_id: accountId,
+      is_active: Boolean(isActive),
+    },
+  }));
+}
+
+function renderIdentityMappingCard(container, channels, mappings) {
+  const mappingCard = document.createElement('div');
+  mappingCard.className = 'channel-item channel-item-wide';
+
+  const header = document.createElement('div');
+  header.className = 'channel-item-header';
+  header.innerHTML = '<span class="channel-name">身份映射</span>';
+  mappingCard.appendChild(header);
+
+  const desc = document.createElement('div');
+  desc.className = 'channel-description';
+  desc.textContent = '把外部频道身份绑定到当前登录用户，保证来自不同频道的消息都能归档到同一用户。';
+  mappingCard.appendChild(desc);
+
+  const form = document.createElement('div');
+  form.className = 'channel-actions';
+
+  const channelSelect = document.createElement('select');
+  channelSelect.className = 'config-input';
+  channels.forEach((channel) => {
+    const option = document.createElement('option');
+    option.value = channel.name;
+    option.textContent = channel.display_name || channel.name;
+    channelSelect.appendChild(option);
+  });
+
+  const externalInput = document.createElement('input');
+  externalInput.className = 'config-input';
+  externalInput.placeholder = 'external_id，例如 open_id / email / user_id';
+
+  const aliasInput = document.createElement('input');
+  aliasInput.className = 'config-input';
+  aliasInput.placeholder = '备注，可选';
+
+  const mapBtn = document.createElement('button');
+  mapBtn.className = 'btn small';
+  mapBtn.textContent = '添加映射';
+  mapBtn.onclick = () => {
+    if (!window.ws || window.ws.readyState !== WebSocket.OPEN) {
+      showNotification('WebSocket not connected', 'error');
+      return;
+    }
+    const externalId = externalInput.value.trim();
+    if (!externalId) {
+      showNotification('external_id 不能为空', 'warning');
+      return;
+    }
+    window.ws.send(JSON.stringify({
+      type: 'map_identity',
+      data: {
+        channel: channelSelect.value,
+        external_id: externalId,
+        alias: aliasInput.value.trim(),
+      },
+    }));
+  };
+
+  form.appendChild(channelSelect);
+  form.appendChild(externalInput);
+  form.appendChild(aliasInput);
+  form.appendChild(mapBtn);
+  mappingCard.appendChild(form);
+
+  const list = document.createElement('div');
+  list.className = 'channel-instance-list';
+  if (!mappings.length) {
+    const empty = document.createElement('div');
+    empty.className = 'channel-empty';
+    empty.textContent = '当前还没有身份映射。';
+    list.appendChild(empty);
+  } else {
+    mappings.forEach((mapping) => {
+      const row = document.createElement('div');
+      row.className = 'channel-instance compact';
+
+      const text = document.createElement('div');
+      text.className = 'channel-instance-meta';
+      text.textContent = `${mapping.channel}:${mapping.external_id}${mapping.alias ? ` (${mapping.alias})` : ''}`;
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn small danger';
+      delBtn.textContent = '删除';
+      delBtn.onclick = () => {
+        if (!window.ws || window.ws.readyState !== WebSocket.OPEN) return;
+        window.ws.send(JSON.stringify({
+          type: 'delete_identity_mapping',
+          data: { mapping_id: mapping.mapping_id },
+        }));
+      };
+
+      row.appendChild(text);
+      row.appendChild(delBtn);
+      list.appendChild(row);
+    });
+  }
+  mappingCard.appendChild(list);
+  container.appendChild(mappingCard);
+}
+
+function renderChannelInstance(channel, cfg, parameters) {
+  const instance = document.createElement('div');
+  instance.className = 'channel-instance';
+
+  const header = document.createElement('div');
+  header.className = 'channel-instance-header';
+
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'channel-instance-title';
+  title.textContent = cfg.name || cfg.account_id;
+  titleWrap.appendChild(title);
+
+  const meta = document.createElement('div');
+  meta.className = 'channel-instance-meta';
+  meta.textContent = `ID: ${cfg.account_id} · 更新于 ${cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : '-'}`;
+  titleWrap.appendChild(meta);
+
+  const badges = document.createElement('div');
+  badges.className = 'channel-badges';
+  const statusBadge = document.createElement('span');
+  statusBadge.className = `channel-badge ${cfg.is_active ? 'ok' : 'muted'}`;
+  statusBadge.textContent = cfg.is_active ? '运行中' : '已停止';
+  badges.appendChild(statusBadge);
+
+  header.appendChild(titleWrap);
+  header.appendChild(badges);
+  instance.appendChild(header);
+
+  const nameInput = document.createElement('input');
+  nameInput.className = 'config-input';
+  nameInput.value = cfg.name || '';
+  nameInput.placeholder = '实例名称';
+  instance.appendChild(nameInput);
+
+  const fieldGrid = document.createElement('div');
+  fieldGrid.className = 'channel-grid';
+  const controls = [];
+  Object.entries(parameters).forEach(([paramName, paramInfo]) => {
+    const control = createChannelFieldControl(paramName, paramInfo, cfg.config?.[paramName]);
+    controls.push(control);
+    fieldGrid.appendChild(control.element);
+  });
+  if (!controls.length) {
+    const empty = document.createElement('div');
+    empty.className = 'channel-empty';
+    empty.textContent = '该频道没有额外配置参数。';
+    fieldGrid.appendChild(empty);
+  }
+  instance.appendChild(fieldGrid);
+
+  const actions = document.createElement('div');
+  actions.className = 'channel-actions';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn small';
+  saveBtn.textContent = '保存';
+  saveBtn.onclick = () => {
+    sendChannelConfig(channel.name, cfg.account_id, nameInput.value, controls, cfg.is_active);
+  };
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'btn small secondary';
+  toggleBtn.textContent = cfg.is_active ? '停止' : '启动';
+  toggleBtn.onclick = () => {
+    setChannelConfigActive(channel.name, cfg.account_id, !cfg.is_active);
+  };
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'btn small danger';
+  deleteBtn.textContent = '删除';
+  deleteBtn.onclick = () => {
+    if (!window.ws || window.ws.readyState !== WebSocket.OPEN) return;
+    window.ws.send(JSON.stringify({
+      type: 'delete_channel_config',
+      data: {
+        channel_type: channel.name,
+        account_id: cfg.account_id,
+      },
+    }));
+  };
+
+  actions.appendChild(saveBtn);
+  actions.appendChild(toggleBtn);
+  actions.appendChild(deleteBtn);
+  instance.appendChild(actions);
+
+  return instance;
+}
+
+function renderChannels(payload) {
+  const container = document.getElementById('channels-list');
+  if (!container) return;
+  if (channelsRequestTimer) {
+    clearTimeout(channelsRequestTimer);
+    channelsRequestTimer = null;
+  }
+
+  const channels = Array.isArray(payload?.channels) ? [...payload.channels] : [];
+  channels.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  const userConfigs = payload?.user_configs || {};
+  const identityMappings = payload?.identity_mappings || [];
+  const storagePath = payload?.storage_path || '';
+  const availableCount = channels.filter((c) => !!c?.available).length;
+
+  container.innerHTML = '';
+
+  const overview = document.createElement('div');
+  overview.className = 'channel-overview';
+  overview.textContent = `Loaded channels: ${channels.length} (available: ${availableCount}, unavailable: ${channels.length - availableCount}) | config dir: ${storagePath || '-'}`;
+  container.appendChild(overview);
+
+  if (false && storagePath) {
+    const overview = document.createElement('div');
+    overview.className = 'channel-overview';
+    overview.textContent = `实例配置文件保存在: ${storagePath}`;
+    container.appendChild(overview);
+  }
+
+  if (!channels.length) {
+    const empty = document.createElement('div');
+    empty.className = 'channel-item channel-item-wide';
+    empty.innerHTML = '<span class="channel-name">当前没有可用频道</span>';
+    container.appendChild(empty);
+    return;
+  }
+
+  renderIdentityMappingCard(container, channels, identityMappings);
+
+  channels.forEach((channel) => {
+    const card = document.createElement('div');
+    card.className = 'channel-item';
+
+    const header = document.createElement('div');
+    header.className = 'channel-item-header';
+
+    const titleWrap = document.createElement('div');
+    const title = document.createElement('span');
+    title.className = 'channel-name';
+    title.textContent = channel.display_name || channel.name;
+    titleWrap.appendChild(title);
+
+    const desc = document.createElement('div');
+    desc.className = 'channel-description';
+    desc.textContent = channel.description || '';
+    titleWrap.appendChild(desc);
+
+    const badges = document.createElement('div');
+    badges.className = 'channel-badges';
+    const availableBadge = document.createElement('span');
+    availableBadge.className = `channel-badge ${channel.available ? 'ok' : 'warn'}`;
+    availableBadge.textContent = channel.available ? '可用' : '未加载';
+    badges.appendChild(availableBadge);
+
+    const countBadge = document.createElement('span');
+    countBadge.className = 'channel-badge';
+    countBadge.textContent = `${channel.instance_count || 0} 个实例`;
+    badges.appendChild(countBadge);
+
+    header.appendChild(titleWrap);
+    header.appendChild(badges);
+    card.appendChild(header);
+
+    const parametersTitle = document.createElement('div');
+    parametersTitle.className = 'channel-section-title';
+    parametersTitle.textContent = '参数模板';
+    card.appendChild(parametersTitle);
+
+    const parametersWrap = document.createElement('div');
+    parametersWrap.className = 'channel-params';
+    const parameterEntries = Object.entries(channel.parameters || {});
+    if (!parameterEntries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'channel-empty';
+      empty.textContent = '该频道没有额外参数。';
+      parametersWrap.appendChild(empty);
+    } else {
+      parameterEntries.forEach(([paramName, paramInfo]) => {
+        const row = document.createElement('div');
+        row.className = 'channel-param';
+
+        const left = document.createElement('span');
+        left.className = 'channel-param-name';
+        left.textContent = `${paramName}${paramInfo.required ? ' *' : ''}`;
+        row.appendChild(left);
+
+        const right = document.createElement('span');
+        right.className = 'channel-param-type';
+        right.textContent = paramInfo.type || 'str';
+        row.appendChild(right);
+
+        parametersWrap.appendChild(row);
+      });
+    }
+    card.appendChild(parametersWrap);
+
+    const instancesTitle = document.createElement('div');
+    instancesTitle.className = 'channel-section-title';
+    instancesTitle.textContent = '实例列表';
+    card.appendChild(instancesTitle);
+
+    const records = userConfigs[channel.name] || [];
+    const instanceList = document.createElement('div');
+    instanceList.className = 'channel-instance-list';
+    if (!records.length) {
+      const empty = document.createElement('div');
+      empty.className = 'channel-empty';
+      empty.textContent = '当前用户还没有创建该频道实例。';
+      instanceList.appendChild(empty);
+    } else {
+      records.forEach((cfg) => {
+        instanceList.appendChild(renderChannelInstance(channel, cfg, channel.parameters || {}));
+      });
+    }
+    card.appendChild(instanceList);
+
+    const createTitle = document.createElement('div');
+    createTitle.className = 'channel-section-title';
+    createTitle.textContent = '创建新实例';
+    card.appendChild(createTitle);
+
+    const createBox = document.createElement('div');
+    createBox.className = 'channel-instance new-instance';
+
+    const createName = document.createElement('input');
+    createName.className = 'config-input';
+    createName.placeholder = '实例名称，例如：我的 Telegram Bot';
+    createBox.appendChild(createName);
+
+    const createGrid = document.createElement('div');
+    createGrid.className = 'channel-grid';
+    const createControls = [];
+    Object.entries(channel.parameters || {}).forEach(([paramName, paramInfo]) => {
+      const control = createChannelFieldControl(paramName, paramInfo, undefined);
+      createControls.push(control);
+      createGrid.appendChild(control.element);
+    });
+    if (!createControls.length) {
+      const empty = document.createElement('div');
+      empty.className = 'channel-empty';
+      empty.textContent = '该频道没有额外配置参数。';
+      createGrid.appendChild(empty);
+    }
+    createBox.appendChild(createGrid);
+
+    const createActions = document.createElement('div');
+    createActions.className = 'channel-actions';
+    const createBtn = document.createElement('button');
+    createBtn.className = 'btn small';
+    createBtn.textContent = '保存新实例';
+    createBtn.onclick = () => {
+      sendChannelConfig(channel.name, null, createName.value, createControls, false);
+      createName.value = '';
+    };
+    createActions.appendChild(createBtn);
+    createBox.appendChild(createActions);
+
+    card.appendChild(createBox);
+    container.appendChild(card);
   });
 }
 
@@ -2818,7 +3329,7 @@ function connect(){
     try { payload = JSON.parse(ev.data); } catch { return; }
 
     const type = payload.type || "event";
-    const data = payload.data || {};
+    const data = Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload;
     
     // Debug log for all message types
     if (type === "inbound_message" || type === "outbound_message") {
@@ -2829,12 +3340,20 @@ function connect(){
       requestPromptEvolutionStatus();
       // Also request translations for current language immediately
       loadTranslations(currentLang);
+      const channelsSection = document.getElementById('section-channels');
+      if (channelsSection && channelsSection.classList.contains('active')) {
+        loadChannels();
+      }
       return;
     }
 
     if (type === "internal_state"){
       console.log("[Dashboard] Received internal_state:", data);
-      renderPortrait(data);
+      try {
+        renderPortrait(data);
+      } catch (error) {
+        console.error("[Dashboard] renderPortrait failed:", error);
+      }
       return;
     }
 
@@ -3014,7 +3533,15 @@ function connect(){
     }
 
     if (type === "channels"){
-      renderChannels(data);
+      try {
+        if (data && data.error) {
+          showNotification(`channels payload error: ${data.error}`, "error");
+        }
+        renderChannels(data || {});
+      } catch (error) {
+        console.error("[Dashboard] renderChannels failed:", error);
+        showNotification("频道面板渲染失败，请刷新页面", "error");
+      }
       return;
     }
 
@@ -3025,6 +3552,11 @@ function connect(){
 
     if (type === "channel_config_delete_result"){
       showNotification(data.ok ? "频道配置已删除" : "频道配置删除失败", data.ok ? "success" : "error");
+      return;
+    }
+
+    if (type === "channel_config_state_result"){
+      showNotification(data.ok ? "频道实例状态已更新" : "频道实例状态更新失败", data.ok ? "success" : "error");
       return;
     }
 
@@ -3600,4 +4132,3 @@ async function bootstrapDashboard() {
 }
 
 bootstrapDashboard();
-

@@ -334,6 +334,7 @@ class DashboardServer:
 
                 await ws.send(json.dumps({"type": "hello", "data": {"ws": self.ws_url, "user_id": user_id}}, ensure_ascii=False))
                 await ws.send(json.dumps({"type": "chat_history", "data": {"messages": self._get_chat_history(user_id)}}, ensure_ascii=False))
+                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                 # Send initial internal state if scheduler is available
                 if self.scheduler and hasattr(self.scheduler, 'state'):
                     await ws.send(json.dumps({"type": "internal_state", "data": self.scheduler.state.model_dump()}, ensure_ascii=False))
@@ -425,7 +426,7 @@ class DashboardServer:
                                     await self.broadcast_manager.publish(scope=user_id, message=broadcast_message)
                                     logger.debug(f"Published user_message to broadcast manager")
                             elif msg_type == "get_channels":
-                                await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "get_providers":
                                 await ws.send(
                                     json.dumps(
@@ -472,7 +473,7 @@ class DashboardServer:
                                     await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": False, "error": "save_failed"}}, ensure_ascii=False))
                                 else:
                                     await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": True, "config": saved}}, ensure_ascii=False))
-                                    await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                                    await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "delete_channel_config":
                                 body = data.get("data", {})
                                 ok = self.user_manager.delete_channel_config(
@@ -481,7 +482,25 @@ class DashboardServer:
                                     account_id=body.get("account_id", ""),
                                 )
                                 await ws.send(json.dumps({"type": "channel_config_delete_result", "data": {"ok": ok}}, ensure_ascii=False))
-                                await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
+                            elif msg_type == "set_channel_config_active":
+                                body = data.get("data", {})
+                                updated = self.user_manager.set_channel_config_active(
+                                    user_id=user_id,
+                                    channel_type=body.get("channel_type", ""),
+                                    account_id=body.get("account_id", ""),
+                                    is_active=body.get("is_active", False),
+                                )
+                                await ws.send(
+                                    json.dumps(
+                                        {
+                                            "type": "channel_config_state_result",
+                                            "data": {"ok": updated is not None, "config": updated},
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                )
+                                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "map_identity":
                                 body = data.get("data", {})
                                 mapped = self.user_manager.map_identity(
@@ -492,7 +511,7 @@ class DashboardServer:
                                     metadata=body.get("metadata", {}),
                                 )
                                 await ws.send(json.dumps({"type": "identity_map_result", "data": {"ok": mapped is not None, "mapping": mapped}}, ensure_ascii=False))
-                                await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "delete_identity_mapping":
                                 body = data.get("data", {})
                                 ok = self.user_manager.delete_identity_mapping(
@@ -500,7 +519,7 @@ class DashboardServer:
                                     user_id=user_id,
                                 )
                                 await ws.send(json.dumps({"type": "identity_delete_result", "data": {"ok": ok}}, ensure_ascii=False))
-                                await ws.send(json.dumps(self._get_channels_payload(user_id), ensure_ascii=False))
+                                await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "get_identity_mappings":
                                 await ws.send(
                                     json.dumps(
@@ -1050,7 +1069,41 @@ class DashboardServer:
     def _get_channel_catalog(self) -> list[dict[str, Any]]:
         try:
             from crabclaw.config.schema import ChannelsConfig
+            from crabclaw.channels.registry import discover_all
 
+            def _safe_param_default(field_info: Any) -> Any:
+                default_val = getattr(field_info, "default", None)
+
+                # Pydantic required-field sentinel is not JSON serializable.
+                if type(default_val).__name__ == "PydanticUndefinedType":
+                    factory = getattr(field_info, "default_factory", None)
+                    if callable(factory):
+                        try:
+                            default_val = factory()
+                        except Exception:
+                            return ""
+                    else:
+                        return ""
+
+                if default_val is None:
+                    return ""
+                if isinstance(default_val, (str, int, float, bool, list, dict)):
+                    return default_val
+                if isinstance(default_val, (tuple, set)):
+                    return list(default_val)
+                if hasattr(default_val, "model_dump"):
+                    try:
+                        return default_val.model_dump(mode="json")
+                    except Exception:
+                        return str(default_val)
+
+                try:
+                    json.dumps(default_val, ensure_ascii=False)
+                    return default_val
+                except Exception:
+                    return str(default_val)
+
+            discovered = discover_all()
             channels = []
             for name, field in ChannelsConfig.model_fields.items():
                 if name in {"send_progress", "send_tool_hints"}:
@@ -1062,20 +1115,22 @@ class DashboardServer:
                         if p_name == "enabled":
                             continue
                         p_type = str(getattr(p_field, "annotation", "str"))
-                        default_val = getattr(p_field, "default", None)
                         description = getattr(p_field, "description", "") or ""
                         parameters[p_name] = {
                             "type": p_type.replace("typing.", ""),
                             "required": bool(getattr(p_field, "is_required", lambda: False)()),
-                            "default": default_val if default_val is not None else "",
+                            "default": _safe_param_default(p_field),
                             "description": description,
                         }
+                channel_cls = discovered.get(name)
+                display_name = getattr(channel_cls, "display_name", name.replace("_", " ").title())
+                description = (getattr(annotation, "__doc__", "") or "").strip() or f"{display_name} channel"
                 channels.append(
                     {
                         "name": name,
-                        "display_name": name.title(),
-                        "description": f"{name.title()} channel",
-                        "available": True,
+                        "display_name": display_name,
+                        "description": description,
+                        "available": channel_cls is not None,
                         "parameters": parameters,
                     }
                 )
@@ -1085,12 +1140,38 @@ class DashboardServer:
             return []
 
     def _get_channels_payload(self, user_id: str) -> dict[str, Any]:
+        user_configs = self.user_manager.list_channel_configs(user_id)
+        channels = self._get_channel_catalog()
+        for item in channels:
+            item["instance_count"] = len(user_configs.get(item.get("name", ""), []))
         return {
             "type": "channels",
-            "channels": self._get_channel_catalog(),
-            "user_configs": self.user_manager.list_channel_configs(user_id),
-            "identity_mappings": self.user_manager.list_identity_mappings(user_id),
+            "data": {
+                "channels": channels,
+                "user_configs": user_configs,
+                "identity_mappings": self.user_manager.list_identity_mappings(user_id),
+                "storage_path": str(self.user_manager.get_portfolio_dir(user_id) / "channels"),
+            },
         }
+
+    def _safe_get_channels_payload(self, user_id: str) -> dict[str, Any]:
+        try:
+            return self._get_channels_payload(user_id)
+        except Exception as e:
+            logger.error("Failed to build channels payload for user %s: %s", user_id, e)
+            storage_path = ""
+            with contextlib.suppress(Exception):
+                storage_path = str(self.user_manager.get_portfolio_dir(user_id) / "channels")
+            return {
+                "type": "channels",
+                "data": {
+                    "channels": [],
+                    "user_configs": {},
+                    "identity_mappings": [],
+                    "storage_path": storage_path,
+                    "error": str(e),
+                },
+            }
 
     def _get_workspace_path(self) -> str:
         try:
