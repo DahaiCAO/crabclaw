@@ -201,3 +201,9 @@ def test_io_processor_echo_guard_and_fanout_skip_origin(tmp_path):
     )
     assert ("email", "fanout@example.com") in targets
     assert ("cli", "direct") not in targets
+
+
+def test_io_processor_resolves_scope_from_inbound_unknown(tmp_path):
+    io = IOProcessor(MessageBus(), _DummySapiens(), BroadcastManager())
+    msg = InboundMessage(channel="feishu", sender_id="ou_zhang", chat_id="oc_abc", content="晚上好")
+    assert io._resolve_scope_from_inbound(msg) == "feishu:oc_abc"

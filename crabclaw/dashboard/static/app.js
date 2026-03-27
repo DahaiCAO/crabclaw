@@ -306,8 +306,38 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// Channel Mode Switching
+function setChannelMode(mode) {
+  document.querySelectorAll('.channel-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.channelMode === mode);
+  });
+  // Save to server
+  if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+    window.ws.send(JSON.stringify({
+      type: 'update_settings',
+      data: { channel_mode: mode }
+    }));
+  }
+  // Save to localStorage
+  localStorage.setItem('channel-mode', mode);
+}
+
+// Channel mode button click handlers
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('channel-mode-btn')) {
+    setChannelMode(e.target.dataset.channelMode);
+  }
+});
+
+// Initialize channel mode on load
+function initChannelMode() {
+  const savedMode = localStorage.getItem('channel-mode') || 'multi';
+  setChannelMode(savedMode);
+}
+
 // Initialize theme on load
   initTheme();
+  initChannelMode();
 
   // Collapsible menu groups
   document.querySelectorAll('.menu-group-header').forEach(header => {
@@ -3849,35 +3879,9 @@ function connect(){
       return;
     }
 
-    // Handle outbound messages (AI responses to external channels)
+    // Handle outbound messages (AI responses to external channels) - skip rendering to avoid duplicates
     if (type === "outbound_message"){
-      if (!shouldRenderEvent(type, data)) return;
-      // Show message in the main chat
-      const chatMessages = document.getElementById('chat-messages');
-      if (chatMessages && data.content) {
-        // Create message element for AI response
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'chat-message assistant';
-        
-        // Add channel indicator
-        const channelLabel = document.createElement('div');
-        channelLabel.style.cssText = 'font-size: 10px; color: var(--muted); margin-bottom: 4px;';
-        channelLabel.textContent = `[${data.channel}] AI Response`;
-        
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        contentDiv.textContent = data.content;
-        
-        const timeDiv = document.createElement('div');
-        timeDiv.className = 'message-timestamp';
-        timeDiv.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-        
-        messageDiv.appendChild(channelLabel);
-        messageDiv.appendChild(contentDiv);
-        messageDiv.appendChild(timeDiv);
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      }
+      // Outbound messages are already handled by agent_reply to avoid duplicates
       return;
     }
 

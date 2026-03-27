@@ -145,8 +145,11 @@ class DecisionEngine:
                         name="respond_to_message",
                         params={
                             "content": msg_content,
-                            "recipient": item.metadata.get("sender_id"),
+                            "recipient": item.metadata.get("sender_id") or item.source,
+                            "scope": item.metadata.get("user_id") or item.source,
                             "source": item.source,
+                            "source_channel": item.metadata.get("channel"),
+                            "source_chat_id": item.metadata.get("chat_id"),
                             "original_stimulus": item,
                         },
                         reason=f"Respond to message from {item.source}: {msg_content[:30]}...",

@@ -49,16 +49,18 @@ class IOProcessor:
         self.broadcast_manager = broadcast_manager
         self._running = False
 
-        # Check if ClawSociety connection is enabled (Social mode)
+        # Check if ClawSociety connection is enabled (Social mode) and load channel mode
         try:
             from crabclaw.config.loader import load_config
             config = load_config()
             self._clawlink_enabled = getattr(config, "clawsociety_enabled", False)
             self._discovery_url = getattr(config, "clawsocial_url", "http://127.0.0.1:8000")
+            self._channel_mode = getattr(config, "channel_mode", "multi")
         except Exception:
             self._clawlink_enabled = False
             self._discovery_url = "http://127.0.0.1:8000"
             self._workspace = None
+            self._channel_mode = "multi"
         else:
             self._workspace = getattr(config, "workspace_path", None)
 
@@ -91,8 +93,6 @@ class IOProcessor:
         if os.getenv("CLAWLINK_DISCOVERY_URL") or os.getenv("CLAWSOCIETY_URL"):
             self._discovery_url = os.getenv("CLAWLINK_DISCOVERY_URL", os.getenv("CLAWSOCIETY_URL", self._discovery_url))
 
-        # Ensure the outbound action queue is properly initialized for async operations
-        self.sapiens_core.outbound_action_queue = asyncio.Queue()
 
     async def run(self):
         """
@@ -228,6 +228,11 @@ class IOProcessor:
                     intensity=0.8,
                     urgency=0.5,
                     timestamp=msg.timestamp.timestamp(),
+                    metadata={
+                        "sender_id": msg.sender_id,
+                        "channel": msg.channel,
+                        "chat_id": msg.chat_id,
+                    },
                 )
 
                 # Send the stimulus to the mind's perception system
@@ -343,15 +348,22 @@ class IOProcessor:
         if reply_scope and self._user_manager:
             mappings = self._user_manager.list_identity_mappings(reply_scope)
             origin = self._scope_origin.get(reply_scope)
-            for mapping in mappings:
-                ch = str(mapping.get("channel", "")).strip()
-                external_id = str(mapping.get("external_id", "")).strip()
-                if ch and external_id:
-                    if origin and ch == origin[0] and external_id == origin[1]:
-                        continue
-                    outbound_targets.append((ch, external_id))
-            if not outbound_targets and origin and origin[0] != 'dashboard':
-                outbound_targets.append((origin[0], origin[1]))
+            
+            # 根据 channel_mode 决定行为
+            if self._channel_mode == "multi":
+                # 多通道订阅模式：所有通道都互通
+                for mapping in mappings:
+                    ch = str(mapping.get("channel", "")).strip()
+                    external_id = str(mapping.get("external_id", "")).strip()
+                    if ch and external_id:
+                        outbound_targets.append((ch, external_id))
+                # 确保 origin 也包含在目标列表中（如果有）
+                if origin and (origin[0], origin[1]) not in outbound_targets:
+                    outbound_targets.append((origin[0], origin[1]))
+            else:
+                # 单通道订阅模式：只发送回 origin
+                if origin:
+                    outbound_targets.append((origin[0], origin[1]))
             return outbound_targets
         if ":" in recipient and not recipient.startswith("did:"):
             ch, target_chat = recipient.split(":", 1)
@@ -417,7 +429,9 @@ class IOProcessor:
             by_chat = self._user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
             if by_chat:
                 return by_chat
-        return ""
+
+        # Fallback to channel:chat for unknown users to preserve reverse routing.
+        return f"{msg.channel}:{msg.chat_id}"
 
     async def _send_agent_message(
         self,

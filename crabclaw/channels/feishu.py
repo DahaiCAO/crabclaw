@@ -330,7 +330,7 @@ class FeishuChannel(BaseChannel):
             self.config.app_id,
             self.config.app_secret,
             event_handler=event_handler,
-            log_level=lark.LogLevel.INFO
+            log_level=lark.LogLevel.DEBUG
         )
 
         # Start WebSocket client in a separate thread with reconnect loop.
@@ -348,10 +348,12 @@ class FeishuChannel(BaseChannel):
             try:
                 while self._running:
                     try:
+                        logger.info("Feishu: Connecting to WebSocket...")
                         self._ws_client.start()
                     except Exception as e:
                         logger.warning("Feishu WebSocket error: {}", e)
                     if self._running:
+                        logger.info("Feishu: WebSocket disconnected, reconnecting in 5 seconds...")
                         time.sleep(5)
             finally:
                 ws_loop.close()
@@ -936,7 +938,8 @@ class FeishuChannel(BaseChannel):
         """Send a message through Feishu, including media (images/files) if present."""
         if not self._client:
             logger.warning("Feishu client not initialized")
-            return
+            # Raise exception to indicate failure
+            raise Exception("Feishu client not initialized")
 
         try:
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"

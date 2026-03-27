@@ -6,6 +6,7 @@ and layers that constitute the agent's mind.
 """
 from loguru import logger
 import asyncio
+import queue
 from pathlib import Path
 from typing import Any
 
@@ -72,10 +73,11 @@ class AgentSapiens:
         self.name = name or agent_id
         self.nickname = nickname or ""
         self.is_alive = True
-        self.outbound_action_queue = asyncio.Queue()
-        self.collaboration_inbox = asyncio.Queue()
-        self.dialogue_inbox = asyncio.Queue()
-        self.event_inbox = asyncio.Queue()
+        # Thread-safe queues for cross-thread interaction with IOProcessor.
+        self.outbound_action_queue = queue.Queue()
+        self.collaboration_inbox = queue.Queue()
+        self.dialogue_inbox = queue.Queue()
+        self.event_inbox = queue.Queue()
         self.workspace_path = Path(workspace_path).expanduser().resolve() if workspace_path else None
         self.prompt_evolution = (
             PromptEvolutionPipeline(self.workspace_path) if self.workspace_path is not None else None
@@ -170,9 +172,12 @@ class AgentSapiens:
 
     def drain_cognitive_ingress(self) -> list[Stimulus]:
         stimuli: list[Stimulus] = []
-        for queue in (self.collaboration_inbox, self.dialogue_inbox, self.event_inbox):
-            while not queue.empty():
-                stimuli.append(queue.get_nowait())
+        for inbox in (self.collaboration_inbox, self.dialogue_inbox, self.event_inbox):
+            while True:
+                try:
+                    stimuli.append(inbox.get_nowait())
+                except queue.Empty:
+                    break
         return stimuli
 
     def live(self):
@@ -184,7 +189,7 @@ class AgentSapiens:
 
     async def get_outbound_action(self):
         """Allows external systems (like the IOProcessor) to get the next action."""
-        return await self.outbound_action_queue.get()
+        return await asyncio.to_thread(self.outbound_action_queue.get)
 
     def shutdown(self):
         """

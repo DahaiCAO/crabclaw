@@ -35,6 +35,8 @@ class BaseChannel(ABC):
         self.config = config
         self.bus = bus
         self._running = False
+        self._route_callback = None
+        self.instance_key: str | None = None
 
     async def transcribe_audio(self, file_path: str | Path) -> str:
         """Transcribe an audio file via Groq Whisper. Returns empty string on failure."""
@@ -142,6 +144,14 @@ class BaseChannel(ABC):
                 sender_id, self.name,
             )
             return
+
+        route_cb = getattr(self, "_route_callback", None)
+        instance_key = getattr(self, "instance_key", None)
+        if route_cb and instance_key:
+            try:
+                route_cb(self.name, str(chat_id), str(instance_key))
+            except Exception:
+                pass
 
         meta = metadata or {}
         resolved_user = self._resolve_user_scope(sender_id, chat_id, meta)

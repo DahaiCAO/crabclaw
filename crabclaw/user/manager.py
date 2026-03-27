@@ -19,26 +19,23 @@ class UserManager:
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        self.users_dir = ensure_dir(self.workspace / "users")
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.portfolios_dir = ensure_dir(self.workspace / "portfolios")
-        self.identity_dir = ensure_dir(self.workspace / "identities")
-        self.identity_file = self.identity_dir / "mappings.json"
         self._cache: Dict[str, UserProfile] = {}
         # Create default admin user if not exists
         self._ensure_default_admin()
 
     def _get_user_path(self, user_id: str) -> Path:
         """Get the file path for a user."""
-        safe_id = safe_filename(user_id)
-        return self.users_dir / f"{safe_id}.json"
+        return self.get_portfolio_dir(user_id) / "portfolio.json"
 
     def _get_session_path(self, session_id: str) -> Path:
         """Get the file path for a session."""
         return self.sessions_dir / f"session_{session_id}.json"
 
     def _get_channel_configs_file(self, user_id: str, channel_type: str) -> Path:
-        return self.get_portfolio_dir(user_id) / "channels" / f"{safe_filename(channel_type)}.json"
+        channel_key = safe_filename(str(channel_type).strip().lower())
+        return self.get_portfolio_dir(user_id) / "channels" / channel_key / f"{channel_key}.json"
 
     def _load_channel_records(self, user_id: str, channel_type: str) -> list[dict[str, Any]]:
         file_path = self._get_channel_configs_file(user_id, channel_type)
@@ -67,7 +64,39 @@ class UserManager:
             for idx, item in enumerate(records)
             if isinstance(item, dict)
         ]
-        file_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+        ensure_dir(file_path.parent)
+        
+        # Custom JSON serialization to handle allow_from compactly
+        def custom_serializer(obj):
+            if isinstance(obj, dict):
+                # For allow_from field, use compact format
+                if 'config' in obj and isinstance(obj['config'], dict) and 'allow_from' in obj['config']:
+                    config = obj['config'].copy()
+                    if isinstance(config['allow_from'], list):
+                        # Create a compact version for allow_from
+                        compact_config = obj.copy()
+                        compact_config['config'] = config.copy()
+                        # Convert allow_from to compact format
+                        compact_config['config']['allow_from'] = config['allow_from']
+                        return compact_config
+                return obj
+            return obj
+        
+        # First serialize with indent for readability
+        json_str = json.dumps(normalized, ensure_ascii=False, indent=2)
+        
+        # Then compact the allow_from fields
+        import re
+        # Pattern to match allow_from with indentation and newlines
+        pattern = r'"allow_from":\s*\[\s*"\*"\s*\]'
+        # Replace with compact format
+        json_str = re.sub(pattern, '"allow_from": ["*"]', json_str)
+        
+        # Also handle multi-line format
+        multi_line_pattern = r'"allow_from":\s*\[\s*\n\s*"\*"\s*\n\s*\]'
+        json_str = re.sub(multi_line_pattern, '"allow_from": ["*"]', json_str)
+        
+        file_path.write_text(json_str, encoding="utf-8")
 
     def _normalize_channel_record(
         self,
@@ -93,24 +122,126 @@ class UserManager:
             "last_error": str(record.get("last_error") or ""),
         }
 
-    def _load_identity_mappings(self) -> list[dict[str, Any]]:
-        if not self.identity_file.exists():
+    def _get_identity_mappings_file(self, user_id: str) -> Path:
+        return self.get_portfolio_dir(user_id) / "channels" / "channel_identity_mappings.json"
+
+    def _normalize_identity_mapping_record(
+        self,
+        record: dict[str, Any],
+        *,
+        user_id_fallback: str = "",
+    ) -> dict[str, Any] | None:
+        if not isinstance(record, dict):
+            return None
+        user_id = str(record.get("user_id") or user_id_fallback).strip()
+        channel, external_id = self._normalize_identity(
+            str(record.get("channel", "")),
+            str(record.get("external_id", "")),
+        )
+        if not user_id or not channel or not external_id:
+            return None
+        now = datetime.now().isoformat()
+        metadata = record.get("metadata")
+        return {
+            "mapping_id": str(record.get("mapping_id") or uuid4()),
+            "user_id": user_id,
+            "channel": channel,
+            "external_id": external_id,
+            "alias": str(record.get("alias") or "").strip(),
+            "metadata": metadata if isinstance(metadata, dict) else {},
+            "created_at": record.get("created_at") or now,
+            "updated_at": record.get("updated_at") or now,
+        }
+
+    def _load_identity_records_from_file(
+        self,
+        file_path: Path,
+        *,
+        user_id_fallback: str = "",
+    ) -> list[dict[str, Any]]:
+        if not file_path.exists():
             return []
         try:
-            payload = json.loads(self.identity_file.read_text(encoding="utf-8"))
-            mappings = payload.get("mappings", [])
-            if isinstance(mappings, list):
-                return mappings
-            return []
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+            raw = payload.get("mappings", []) if isinstance(payload, dict) else payload
+            if not isinstance(raw, list):
+                return []
         except Exception as e:
-            logger.warning(f"Failed to load identity mappings: {e}")
+            logger.warning(f"Failed to load identity mappings from {file_path}: {e}")
             return []
 
-    def _save_identity_mappings(self, mappings: list[dict[str, Any]]) -> None:
-        self.identity_file.write_text(
-            json.dumps({"version": 1, "mappings": mappings}, ensure_ascii=False, indent=2),
+        records: list[dict[str, Any]] = []
+        for item in raw:
+            normalized = self._normalize_identity_mapping_record(item, user_id_fallback=user_id_fallback)
+            if normalized:
+                records.append(normalized)
+        return records
+
+    def _save_identity_records_to_file(self, file_path: Path, mappings: list[dict[str, Any]]) -> None:
+        normalized = []
+        for item in mappings:
+            normalized_item = self._normalize_identity_mapping_record(item)
+            if normalized_item:
+                normalized.append(normalized_item)
+        ensure_dir(file_path.parent)
+        file_path.write_text(
+            json.dumps({"version": 1, "mappings": normalized}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _load_identity_mappings_from_portfolios(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        if user_id:
+            file_path = self._get_identity_mappings_file(user_id)
+            return self._load_identity_records_from_file(file_path, user_id_fallback=user_id)
+
+        records: list[dict[str, Any]] = []
+        for portfolio_dir in self.portfolios_dir.iterdir():
+            if not portfolio_dir.is_dir():
+                continue
+            records.extend(
+                self._load_identity_records_from_file(
+                    portfolio_dir / "channels" / "channel_identity_mappings.json",
+                    user_id_fallback=portfolio_dir.name,
+                )
+            )
+        return records
+
+    def _save_identity_mappings_to_portfolios(
+        self,
+        mappings: list[dict[str, Any]],
+        user_id: str | None = None,
+    ) -> None:
+        if user_id:
+            own = [item for item in mappings if str(item.get("user_id")) == user_id]
+            self._save_identity_records_to_file(self._get_identity_mappings_file(user_id), own)
+            return
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in mappings:
+            normalized = self._normalize_identity_mapping_record(item)
+            if not normalized:
+                continue
+            grouped.setdefault(normalized["user_id"], []).append(normalized)
+
+        existing_files = [
+            p / "channels" / "channel_identity_mappings.json"
+            for p in self.portfolios_dir.iterdir()
+            if p.is_dir()
+        ]
+        for file_path in existing_files:
+            if file_path.exists():
+                user_key = file_path.parent.parent.name
+                if user_key not in grouped:
+                    file_path.unlink(missing_ok=True)
+
+        for uid, items in grouped.items():
+            self._save_identity_records_to_file(self._get_identity_mappings_file(uid), items)
+
+    def _load_identity_mappings(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        return self._load_identity_mappings_from_portfolios(user_id=user_id)
+
+    def _save_identity_mappings(self, mappings: list[dict[str, Any]], user_id: str | None = None) -> None:
+        self._save_identity_mappings_to_portfolios(mappings, user_id=user_id)
 
     @staticmethod
     def _normalize_identity(channel: str, external_id: str) -> tuple[str, str]:
@@ -143,23 +274,41 @@ class UserManager:
         for d in dirs_to_create:
             ensure_dir(portfolio_dir / d)
             
-        summary_file = portfolio_dir / "portfolio.json"
-        if not summary_file.exists():
-            summary_file.write_text(
-                json.dumps(
-                    {
-                        "user_id": user.user_id,
-                        "username": user.username,
-                        "display_name": user.display_name,
-                        "is_admin": user.is_admin,
-                        "created_at": user.created_at.isoformat(),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+        profile_file = portfolio_dir / "portfolio.json"
+        if not profile_file.exists():
+            profile_file.write_text(
+                json.dumps(user.to_dict(), ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         return portfolio_dir
+
+    def _read_user_payload(self, file_path: Path) -> dict[str, Any] | None:
+        if not file_path.exists():
+            return None
+        try:
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load user file {file_path}: {e}")
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    def _user_from_payload(self, payload: dict[str, Any]) -> Optional[UserProfile]:
+        required = ("user_id", "username", "display_name", "password_hash")
+        if not all(payload.get(key) for key in required):
+            return None
+        try:
+            return UserProfile.from_dict(payload)
+        except Exception as e:
+            logger.warning(f"Failed to parse user payload: {e}")
+            return None
+
+    def _load_user_from_path(self, file_path: Path) -> Optional[UserProfile]:
+        payload = self._read_user_payload(file_path)
+        if not payload:
+            return None
+        return self._user_from_payload(payload)
 
     def _ensure_default_admin(self) -> None:
         """Ensure default admin user exists."""
@@ -213,36 +362,33 @@ class UserManager:
 
     def get_user_by_username(self, username: str) -> Optional[UserProfile]:
         """Get a user by username."""
-        for user_file in self.users_dir.glob("*.json"):
-            try:
-                with open(user_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if data.get("username") == username:
-                        user = UserProfile.from_dict(data)
-                        self._cache[user.user_id] = user
-                        return user
-            except Exception as e:
-                logger.warning(f"Failed to load user file {user_file}: {e}")
+        for portfolio_dir in self.portfolios_dir.iterdir():
+            if not portfolio_dir.is_dir():
+                continue
+            profile_path = portfolio_dir / "portfolio.json"
+            payload = self._read_user_payload(profile_path)
+            if not payload:
+                continue
+            if payload.get("username") != username:
+                continue
+            user = self._user_from_payload(payload)
+            if user:
+                self._cache[user.user_id] = user
+                return user
         return None
 
     def _load_user(self, user_id: str) -> Optional[UserProfile]:
         """Load a user from disk."""
         path = self._get_user_path(user_id)
-        if not path.exists():
-            return None
-
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return UserProfile.from_dict(data)
-        except Exception as e:
-            logger.warning(f"Failed to load user {user_id}: {e}")
-            return None
+        user = self._load_user_from_path(path)
+        if user:
+            return user
+        return None
 
     def save_user(self, user: UserProfile) -> None:
         """Save a user to disk."""
         path = self._get_user_path(user.user_id)
-
+        ensure_dir(path.parent)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(user.to_dict(), f, ensure_ascii=False, indent=2)
 
@@ -251,13 +397,14 @@ class UserManager:
     def delete_user(self, user_id: str) -> bool:
         """Delete a user."""
         path = self._get_user_path(user_id)
-        if not path.exists():
+        portfolio_dir = self.get_portfolio_dir(user_id)
+        if not path.exists() and not portfolio_dir.exists():
             return False
 
         try:
-            path.unlink()
+            if path.exists():
+                path.unlink()
             self._cache.pop(user_id, None)
-            portfolio_dir = self.get_portfolio_dir(user_id)
             if portfolio_dir.exists():
                 shutil.rmtree(portfolio_dir, ignore_errors=True)
 
@@ -338,39 +485,48 @@ class UserManager:
     def list_users(self) -> List[Dict[str, Any]]:
         """List all users."""
         users = []
-
-        for user_file in self.users_dir.glob("*.json"):
-            try:
-                with open(user_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    users.append(
-                        {
-                            "user_id": data.get("user_id"),
-                            "username": data.get("username"),
-                            "display_name": data.get("display_name"),
-                            "created_at": data.get("created_at"),
-                            "last_login": data.get("last_login"),
-                            "is_active": data.get("is_active", True),
-                            "is_admin": data.get("is_admin", False),
-                        }
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to load user file {user_file}: {e}")
+        seen: set[str] = set()
+        for portfolio_dir in self.portfolios_dir.iterdir():
+            if not portfolio_dir.is_dir():
+                continue
+            profile_path = portfolio_dir / "portfolio.json"
+            payload = self._read_user_payload(profile_path)
+            if not payload:
+                continue
+            user = self._user_from_payload(payload)
+            if not user or user.user_id in seen:
+                continue
+            seen.add(user.user_id)
+            users.append(
+                {
+                    "user_id": user.user_id,
+                    "username": user.username,
+                    "display_name": user.display_name,
+                    "created_at": user.created_at.isoformat(),
+                    "last_login": user.last_login.isoformat() if user.last_login else None,
+                    "is_active": user.is_active,
+                    "is_admin": user.is_admin,
+                }
+            )
 
         return users
 
     def get_all_users_detailed(self) -> List[Dict[str, Any]]:
         """Get detailed information about all users (admin only)."""
         users = []
-
-        for user_file in self.users_dir.glob("*.json"):
-            try:
-                with open(user_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    user = UserProfile.from_dict(data)
-                    users.append(user.to_dict())
-            except Exception as e:
-                logger.warning(f"Failed to load user file {user_file}: {e}")
+        seen: set[str] = set()
+        for portfolio_dir in self.portfolios_dir.iterdir():
+            if not portfolio_dir.is_dir():
+                continue
+            profile_path = portfolio_dir / "portfolio.json"
+            payload = self._read_user_payload(profile_path)
+            if not payload:
+                continue
+            user = self._user_from_payload(payload)
+            if not user or user.user_id in seen:
+                continue
+            seen.add(user.user_id)
+            users.append(user.to_dict())
 
         return users
 
@@ -416,8 +572,14 @@ class UserManager:
 
         result: Dict[str, list[dict[str, Any]]] = {}
         channels_dir = self.get_portfolio_dir(user_id) / "channels"
-        for f in channels_dir.glob("*.json"):
-            result[f.stem] = self._load_channel_records(user_id, f.stem)
+        for channel_dir in channels_dir.iterdir():
+            if not channel_dir.is_dir():
+                continue
+            channel_key = channel_dir.name
+            channel_file = channel_dir / f"{channel_key}.json"
+            if not channel_file.exists():
+                continue
+            result[channel_key] = self._load_channel_records(user_id, channel_key)
         return result
 
     def save_channel_config(
@@ -570,10 +732,9 @@ class UserManager:
         return None
 
     def list_identity_mappings(self, user_id: str | None = None) -> list[dict[str, Any]]:
-        mappings = self._load_identity_mappings()
         if user_id is None:
-            return mappings
-        return [item for item in mappings if item.get("user_id") == user_id]
+            return self._load_identity_mappings()
+        return self._load_identity_mappings(user_id=user_id)
 
     def delete_identity_mapping(self, mapping_id: str, user_id: str | None = None) -> bool:
         mappings = self._load_identity_mappings()

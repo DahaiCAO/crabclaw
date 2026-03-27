@@ -96,7 +96,7 @@ sequenceDiagram
 ## 4. Identity and Isolation Model
 
 - Identity mapping: `identities/mappings.json`
-- User profile: `users/<user_id>.json`
+- User profile: `portfolios/<user_id>/portfolio.json`
 - User portfolio:
   - `portfolios/<user_id>/memory/`
   - `portfolios/<user_id>/history/`

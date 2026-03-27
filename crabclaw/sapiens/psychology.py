@@ -5,7 +5,7 @@ This module contains the core components of the agent's mind,
 including the Global Workspace Theory implementation for consciousness
 and the Emotion Engine.
 """
-import asyncio
+import queue
 from typing import Dict, List
 
 from .datatypes import Signal, Stimulus
@@ -21,7 +21,7 @@ class GlobalWorkspace:
     """
     def __init__(self, capacity: int = 3):
         self.capacity = capacity
-        self.stimulus_queue = asyncio.Queue()
+        self.stimulus_queue = queue.Queue()
 
     def add_stimulus(self, stimulus: Stimulus):
         """Allows external systems (like the IOProcessor) to add stimuli to the workspace."""
@@ -30,14 +30,20 @@ class GlobalWorkspace:
     async def gather_stimuli(self) -> List[Stimulus]:
         """Gathers all pending stimuli from the queue for a given tick."""
         stimuli = []
-        while not self.stimulus_queue.empty():
-            stimuli.append(self.stimulus_queue.get_nowait())
+        while True:
+            try:
+                stimuli.append(self.stimulus_queue.get_nowait())
+            except queue.Empty:
+                break
         return stimuli
 
     def drain_stimuli(self) -> List[Stimulus]:
         stimuli = []
-        while not self.stimulus_queue.empty():
-            stimuli.append(self.stimulus_queue.get_nowait())
+        while True:
+            try:
+                stimuli.append(self.stimulus_queue.get_nowait())
+            except queue.Empty:
+                break
         return stimuli
 
     def select_focus(self, signals: List[Signal | Stimulus]) -> List[Signal | Stimulus]:

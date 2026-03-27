@@ -96,7 +96,7 @@ sequenceDiagram
 ## 4. 身份与隔离模型
 
 - 身份映射：`identities/mappings.json`
-- 用户档案：`users/<user_id>.json`
+- 用户档案：`portfolios/<user_id>/portfolio.json`
 - 用户 portfolio：
   - `portfolios/<user_id>/memory/`
   - `portfolios/<user_id>/history/`

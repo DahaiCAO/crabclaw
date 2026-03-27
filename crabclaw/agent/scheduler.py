@@ -142,89 +142,93 @@ class BehaviorScheduler:
         # 2) Push InternalState periodically so UI is "live".
         async def _tick():
             while True:
-                # Read interval dynamically from config each iteration
-                interval = max(0.2, float(self.config.dashboard.state_push_interval_s))
+                try:
+                    # Read interval dynamically from config each iteration
+                    interval = max(0.2, float(self.config.dashboard.state_push_interval_s))
 
-                # Sync state from sapiens_core if available
-                if self.sapiens_core:
-                    self.state.is_alive = self.sapiens_core.is_alive
-                    self.state.agent_id = self.sapiens_core.id
+                    # Sync state from sapiens_core if available
+                    if self.sapiens_core:
+                        self.state.is_alive = self.sapiens_core.is_alive
+                        self.state.agent_id = self.sapiens_core.id
 
-                    # Sync Profile (Placeholder for name, etc. if they exist in core)
-                    if hasattr(self.sapiens_core, "self_model") and self.sapiens_core.self_model:
-                        self.state.agent_name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
-                        self.state.nickname = self.sapiens_core.self_model.identity.get("nickname") or ""
-                        self.state.gender = self.sapiens_core.self_model.identity.get("gender") or "non-binary"
-                        self.state.height = self.sapiens_core.self_model.identity.get("height") or 175.0
-                        self.state.weight = self.sapiens_core.self_model.identity.get("weight") or 70.0
-                        self.state.hobbies = self.sapiens_core.self_model.identity.get("hobbies") or []
-                        self.state.self_model = {
-                            "confidence": self.sapiens_core.self_model.state.get("confidence", 0.0),
-                            "skills": self.sapiens_core.self_model.identity.get("skills", {})
-                        }
+                        # Sync Profile (Placeholder for name, etc. if they exist in core)
+                        if hasattr(self.sapiens_core, "self_model") and self.sapiens_core.self_model:
+                            self.state.agent_name = self.sapiens_core.self_model.identity.get("name") or "Crabclaw"
+                            self.state.nickname = self.sapiens_core.self_model.identity.get("nickname") or ""
+                            self.state.gender = self.sapiens_core.self_model.identity.get("gender") or "non-binary"
+                            self.state.height = self.sapiens_core.self_model.identity.get("height") or 175.0
+                            self.state.weight = self.sapiens_core.self_model.identity.get("weight") or 70.0
+                            self.state.hobbies = self.sapiens_core.self_model.identity.get("hobbies") or []
+                            self.state.self_model = {
+                                "confidence": self.sapiens_core.self_model.state.get("confidence", 0.0),
+                                "skills": self.sapiens_core.self_model.identity.get("skills", {})
+                            }
 
-                    # Sync Physiology
-                    if hasattr(self.sapiens_core, "physiology") and self.sapiens_core.physiology:
-                        p = self.sapiens_core.physiology
-                        if hasattr(p, "metabolism"):
-                            self.state.physiology = {
-                                "metabolism": {
-                                    "energy": getattr(p.metabolism, "energy", 0.0),
-                                    "health": getattr(p.metabolism, "health", 0.0),
-                                    "satiety": getattr(p.metabolism, "satiety", 0.0),
+                        # Sync Physiology
+                        if hasattr(self.sapiens_core, "physiology") and self.sapiens_core.physiology:
+                            p = self.sapiens_core.physiology
+                            if hasattr(p, "metabolism"):
+                                self.state.physiology = {
+                                    "metabolism": {
+                                        "energy": getattr(p.metabolism, "energy", 0.0),
+                                        "health": getattr(p.metabolism, "health", 0.0),
+                                        "satiety": getattr(p.metabolism, "satiety", 0.0),
+                                    }
                                 }
+                            if hasattr(p, "lifecycle"):
+                                self.state.age = p.lifecycle.age
+                                self.state.physiology["plasticity"] = p.lifecycle.plasticity
+
+                        # Sync Sociology
+                        if hasattr(self.sapiens_core, "sociology") and self.sapiens_core.sociology:
+                            s = self.sapiens_core.sociology
+                            known_count = len(getattr(s.social_mind, "mind_models", {}))
+                            potential_count = getattr(s.manager, "get_potential_agents_count", lambda: 0)()
+
+                            self.state.sociology = {
+                                "economy": {
+                                    "credits": getattr(s.economy, "credits", 0.0)
+                                },
+                                "ticks_since_last_interaction": getattr(s.manager, "ticks_since_last_interaction", 0),
+                                "partners_count": max(known_count, potential_count)
                             }
-                        if hasattr(p, "lifecycle"):
-                            self.state.age = p.lifecycle.age
-                            self.state.physiology["plasticity"] = p.lifecycle.plasticity
 
-                    # Sync Sociology
-                    if hasattr(self.sapiens_core, "sociology") and self.sapiens_core.sociology:
-                        s = self.sapiens_core.sociology
-                        known_count = len(getattr(s.social_mind, "mind_models", {}))
-                        potential_count = getattr(s.manager, "get_potential_agents_count", lambda: 0)()
-
-                        self.state.sociology = {
-                            "economy": {
-                                "credits": getattr(s.economy, "credits", 0.0)
-                            },
-                            "ticks_since_last_interaction": getattr(s.manager, "ticks_since_last_interaction", 0),
-                            "partners_count": max(known_count, potential_count)
-                        }
-
-                    # Sync Psychology
-                    if hasattr(self.sapiens_core, "psychology") and self.sapiens_core.psychology:
-                        psy = self.sapiens_core.psychology
-                        if hasattr(psy, "emotion"):
-                            self.state.psychology = {
-                                "emotion": psy.emotion.state
-                            }
-                            logger.debug(f"Sync psychology: {psy.emotion.state}")
+                        # Sync Psychology
+                        if hasattr(self.sapiens_core, "psychology") and self.sapiens_core.psychology:
+                            psy = self.sapiens_core.psychology
+                            if hasattr(psy, "emotion"):
+                                self.state.psychology = {
+                                    "emotion": psy.emotion.state
+                                }
+                                logger.debug(f"Sync psychology: {psy.emotion.state}")
+                            else:
+                                logger.debug("No emotion attribute in psychology")
                         else:
-                            logger.debug("No emotion attribute in psychology")
-                    else:
-                        logger.debug("No psychology in sapiens_core")
+                            logger.debug("No psychology in sapiens_core")
 
-                    # Sync Needs
-                    if hasattr(self.sapiens_core, "needs_engine") and self.sapiens_core.needs_engine:
-                        self.state.needs = self.sapiens_core.needs_engine.needs
-                        logger.info(f"Sync needs: {self.sapiens_core.needs_engine.needs}")
-                    else:
-                        logger.info("No needs_engine in sapiens_core")
+                        # Sync Needs
+                        if hasattr(self.sapiens_core, "needs_engine") and self.sapiens_core.needs_engine:
+                            self.state.needs = self.sapiens_core.needs_engine.needs
+                            logger.info(f"Sync needs: {self.sapiens_core.needs_engine.needs}")
+                        else:
+                            logger.info("No needs_engine in sapiens_core")
 
-                    self.state.update_timestamp()
+                        self.state.update_timestamp()
 
-                # Publish internal state updates in a consistent dashboard-compatible format
-                # and on the dedicated system state scope so the dashboard can subscribe to it.
-                logger.info(f"_tick: Publishing internal_state, psychology={self.state.psychology}, needs={self.state.needs}")
-                await self.broadcast_manager.publish(
-                    "system:state",
-                    {
-                        "type": "internal_state",
-                        "data": self.state.model_dump(),
-                    },
-                )
-                await asyncio.sleep(interval)
+                    # Publish internal state updates in a consistent dashboard-compatible format
+                    # and on the dedicated system state scope so the dashboard can subscribe to it.
+                    logger.info(f"_tick: Publishing internal_state, psychology={self.state.psychology}, needs={self.state.needs}")
+                    await self.broadcast_manager.publish(
+                        "system:state",
+                        {
+                            "type": "internal_state",
+                            "data": self.state.model_dump(),
+                        },
+                    )
+                    await asyncio.sleep(interval)
+                except Exception:
+                    logger.exception("State ticker failed once; continuing.")
+                    await asyncio.sleep(1.0)
 
         self._state_ticker = asyncio.create_task(_tick())
         logger.info(f"Started state ticker with interval {self.config.dashboard.state_push_interval_s}s")
@@ -396,7 +400,7 @@ class BehaviorScheduler:
         if not scope:
             scope = self.user_manager.resolve_user_by_identity(msg.channel, msg.chat_id)
         if not scope:
-            return
+            scope = f"{msg.channel}:{msg.chat_id}"
 
         # Save inbound user message to session history
         try:

@@ -350,7 +350,10 @@
     "connection": "连接信息",
     "providers": "模型提供商 / API Keys",
     "dark": "深色",
-    "light": "浅色"
+    "light": "浅色",
+    "channel_mode": "通道通信模式",
+    "multi_channel_mode": "多通道订阅模式",
+    "single_channel_mode": "单通道订阅模式"
   },
   "genders": {
     "male": "男",

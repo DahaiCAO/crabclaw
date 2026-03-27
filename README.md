@@ -62,7 +62,7 @@ The codebase has moved from a classic request/response chat wrapper to a scoped,
 
 ### 2) Multi-User Isolation by Default
 
-- User files: `workspace/users/*.json`
+- User profiles: `workspace/portfolios/<user_id>/portfolio.json`
 - User portfolio: `workspace/portfolios/<user_id>/...`
 - User session/memory isolation through `user_scope`.
 - Per-user channel account configs and identity mappings.
@@ -389,4 +389,3 @@ PRs are welcome. For large architecture or behavior changes, include:
 - design notes,
 - test updates,
 - docs updates in both English and Chinese.
-

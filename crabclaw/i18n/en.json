@@ -350,7 +350,10 @@
     "connection": "Connection Info",
     "providers": "Model Providers / API Keys",
     "dark": "Dark",
-    "light": "Light"
+    "light": "Light",
+    "channel_mode": "Channel Communication Mode",
+    "multi_channel_mode": "Multi-Channel Subscription",
+    "single_channel_mode": "Single-Channel Subscription"
   },
   "genders": {
     "male": "Male",

@@ -148,7 +148,6 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
         "cron",
         "history",
         "memory",
-        "users",
         "sessions",
         "identities",
         "portfolios",

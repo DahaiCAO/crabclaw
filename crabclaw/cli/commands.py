@@ -326,7 +326,7 @@ def setup(
         cfg = Config()
 
     # Step 1: Select Language
-    total_steps = 10
+    total_steps = 9
     _print_step(1, total_steps, translate("cli.config.language_step"))
     languages = get_supported_languages()
     language_display = []
@@ -496,78 +496,6 @@ def setup(
         if dashboard_port.isdigit():
             cfg.dashboard.http_port = int(dashboard_port)
 
-    # Step 10: Configure Channels (optional)
-    _print_step(10, total_steps, translate("cli.onboard.channels_step"))
-
-    configure_channels = typer.confirm("\n" + translate("cli.onboard.configure_channels"), default=False)
-
-    if configure_channels:
-        # Telegram
-        enable_telegram = typer.confirm(translate("cli.onboard.enable_telegram"), default=False)
-        if enable_telegram:
-            tg_token = _ask_text(translate("cli.onboard.enter_telegram_token"), default="")
-            if tg_token:
-                config.channels.telegram.enabled = True
-                config.channels.telegram.token = tg_token
-
-        # Discord
-        enable_discord = typer.confirm(translate("cli.onboard.enable_discord"), default=False)
-        if enable_discord:
-            dc_token = _ask_text(translate("cli.onboard.enter_discord_token"), default="")
-            if dc_token:
-                config.channels.discord.enabled = True
-                config.channels.discord.token = dc_token
-
-        # Slack
-        enable_slack = typer.confirm(translate("cli.onboard.enable_slack"), default=False)
-        if enable_slack:
-            slack_bot_token = _ask_text(translate("cli.onboard.enter_slack_bot_token"), default="")
-            if slack_bot_token:
-                config.channels.slack.enabled = True
-                config.channels.slack.bot_token = slack_bot_token
-
-        # WhatsApp
-        enable_whatsapp = typer.confirm(translate("cli.onboard.enable_whatsapp"), default=False)
-        if enable_whatsapp:
-            wa_bridge_url = _ask_text(translate("cli.onboard.enter_whatsapp_bridge_url"), default="ws://localhost:3001")
-            cfg.channels.whatsapp.enabled = True
-            cfg.channels.whatsapp.bridge_url = wa_bridge_url
-
-        # Feishu
-        enable_feishu = typer.confirm(translate("cli.onboard.enable_feishu"), default=False)
-        if enable_feishu:
-            fs_app_id = _ask_text(translate("cli.onboard.enter_feishu_app_id"), default="")
-            fs_app_secret = _ask_text(translate("cli.onboard.enter_feishu_app_secret"), default="")
-            if fs_app_id and fs_app_secret:
-                cfg.channels.feishu.enabled = True
-                cfg.channels.feishu.app_id = fs_app_id
-                cfg.channels.feishu.app_secret = fs_app_secret
-
-        # DingTalk
-        enable_dingtalk = typer.confirm(translate("cli.onboard.enable_dingtalk"), default=False)
-        if enable_dingtalk:
-            dt_client_id = _ask_text(translate("cli.onboard.enter_dingtalk_client_id"), default="")
-            dt_client_secret = _ask_text(translate("cli.onboard.enter_dingtalk_client_secret"), default="")
-            if dt_client_id and dt_client_secret:
-                cfg.channels.dingtalk.enabled = True
-                cfg.channels.dingtalk.client_id = dt_client_id
-                cfg.channels.dingtalk.client_secret = dt_client_secret
-
-        # Email
-        enable_email = typer.confirm(translate("cli.onboard.enable_email"), default=False)
-        if enable_email:
-            imap_host = _ask_text(translate("cli.onboard.enter_imap_host"), default="")
-            imap_user = _ask_text(translate("cli.onboard.enter_imap_username"), default="")
-            imap_pass = _ask_password(translate("cli.onboard.enter_imap_password"))
-            smtp_host = _ask_text(translate("cli.onboard.enter_smtp_host"), default="")
-            if imap_host and imap_user:
-                cfg.channels.email.enabled = True
-                cfg.channels.email.imap_host = imap_host
-                cfg.channels.email.imap_username = imap_user
-                cfg.channels.email.imap_password = imap_pass
-                if smtp_host:
-                    cfg.channels.email.smtp_host = smtp_host
-
     # Apply all configurations to config object (in memory)
     # Use getattr to get provider config and set api key
     provider_config = getattr(cfg.providers, provider_key, None)
@@ -613,7 +541,7 @@ def setup(
     console.print(f"  MCP Servers: {len(mcp_servers_config) if mcp_servers_config else 'None'}")
     console.print(f"  Gateway: {'Enabled' if configure_gateway else 'Disabled'}")
     console.print(f"  Dashboard: {'Enabled' if configure_dashboard else 'Disabled'}")
-    console.print(f"  Channels: {'Enabled' if configure_channels else 'Disabled'}")
+    console.print("  Channels: Managed per-user in workspace/portfolios")
 
     if typer.confirm(f"\n{translate('cli.onboard.save_confirm')}", default=True):
         # Save config to file
@@ -1346,8 +1274,11 @@ def agent(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
-        channels_config=config.channels,
     )
+    try:
+        setattr(agent_loop, "messaging_config", config.messaging)
+    except Exception:
+        pass
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
     def _thinking_ctx():
@@ -1358,10 +1289,10 @@ def agent(
         return console.status(translate("cli.agent.thinking"), spinner="dots")
 
     async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
-        ch = agent_loop.channels_config
-        if ch and tool_hint and not ch.send_tool_hints:
+        msg_cfg = getattr(agent_loop, "messaging_config", None)
+        if msg_cfg and tool_hint and not msg_cfg.send_tool_hints:
             return
-        if ch and not tool_hint and not ch.send_progress:
+        if msg_cfg and not tool_hint and not msg_cfg.send_progress:
             return
         console.print(f"  [dim][OK]?{content}[/dim]")
 
@@ -1405,10 +1336,10 @@ def agent(
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                         if msg.metadata.get("_progress"):
                             is_tool_hint = msg.metadata.get("_tool_hint", False)
-                            ch = agent_loop.channels_config
-                            if ch and is_tool_hint and not ch.send_tool_hints:
+                            msg_cfg = getattr(agent_loop, "messaging_config", None)
+                            if msg_cfg and is_tool_hint and not msg_cfg.send_tool_hints:
                                 pass
-                            elif ch and not is_tool_hint and not ch.send_progress:
+                            elif msg_cfg and not is_tool_hint and not msg_cfg.send_progress:
                                 pass
                             else:
                                 console.print(f"  [dim][OK]?{msg.content}[/dim]")
@@ -1446,6 +1377,239 @@ def agent(
                         await bus.publish_inbound(InboundMessage(
                             channel=cli_channel,
                             sender_id="user",
+                            chat_id=cli_chat_id,
+                            content=user_input,
+                        ))
+
+                        with _thinking_ctx():
+                            await turn_done.wait()
+
+                        if turn_response:
+                            _print_agent_response(turn_response[0], render_markdown=markdown)
+                    except KeyboardInterrupt:
+                        _restore_terminal()
+                        console.print("\nGoodbye!")
+                        break
+                    except EOFError:
+                        _restore_terminal()
+                        console.print("\nGoodbye!")
+                        break
+            finally:
+                agent_loop.stop()
+                outbound_task.cancel()
+                await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
+                await agent_loop.close_mcp()
+
+        asyncio.run(run_interactive())
+
+
+@app.command()
+def chat(
+    username: str | None = typer.Option(None, "--username", "-u", help="Username to chat with"),
+    message: str | None = typer.Option(None, "--message", "-m", help="Message to send (single message mode)"),
+    markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show Crabclaw runtime logs during chat"),
+):
+    """Chat with crabclaw through CLI with user authentication."""
+    from loguru import logger
+    import getpass
+
+    from crabclaw.agent.loop import AgentLoop
+    from crabclaw.bus.queue import MessageBus
+    from crabclaw.config.loader import get_data_dir, load_config
+    from crabclaw.cron.service import CronService
+    from crabclaw.user.manager import UserManager
+
+    config = load_config()
+    sync_workspace_templates(config.workspace_path)
+
+    user_manager = UserManager(config.workspace_path)
+
+    # Step 1: Select user
+    if not username:
+        # List all users and let user select
+        users = user_manager.list_users()
+        if not users:
+            console.print("[red]No users found. Please create a user first.[/red]")
+            return
+
+        console.print("\n[bold]Available users:[/bold]")
+        for i, user in enumerate(users, 1):
+            console.print(f"  {i}. {user['display_name']} (@{user['username']})")
+
+        while True:
+            try:
+                choice = typer.prompt("\nSelect a user number")
+                idx = int(choice) - 1
+                if 0 <= idx < len(users):
+                    selected_user = users[idx]
+                    break
+                else:
+                    console.print("[red]Invalid selection. Please try again.[/red]")
+            except ValueError:
+                console.print("[red]Please enter a valid number.[/red]")
+    else:
+        # Use provided username
+        selected_user_data = user_manager.get_user_by_username(username)
+        if not selected_user_data:
+            console.print(f"[red]User '{username}' not found.[/red]")
+            return
+        selected_user = {
+            "user_id": selected_user_data.user_id,
+            "username": selected_user_data.username,
+            "display_name": selected_user_data.display_name,
+        }
+
+    # Step 2: Authenticate with password
+    console.print(f"\n[bold]Authenticating as {selected_user['display_name']} (@{selected_user['username']})[/bold]")
+    
+    max_attempts = 3
+    authenticated = None
+    for attempt in range(max_attempts):
+        password = getpass.getpass(prompt="Password: ")
+        authenticated = user_manager.authenticate(selected_user["username"], password)
+        if authenticated:
+            console.print("[green]✓ Authentication successful![/green]")
+            break
+        else:
+            remaining = max_attempts - attempt - 1
+            if remaining > 0:
+                console.print(f"[red]✗ Authentication failed. {remaining} attempts remaining.[/red]")
+            else:
+                console.print("[red]✗ Authentication failed. Too many attempts.[/red]")
+                return
+
+    if not authenticated:
+        return
+
+    # Step 3: Set up chat session
+    bus = MessageBus()
+    provider = _make_provider(config)
+    cron_store_path = get_data_dir() / "cron" / "jobs.json"
+    cron = CronService(cron_store_path)
+
+    if logs:
+        logger.enable("crabclaw")
+    else:
+        logger.disable("crabclaw")
+
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=config.workspace_path,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        max_iterations=config.agents.defaults.max_tool_iterations,
+        memory_window=config.agents.defaults.memory_window,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
+        brave_api_key=config.tools.web.search.api_key or None,
+        web_proxy=config.tools.web.proxy or None,
+        exec_config=config.tools.exec,
+        cron_service=cron,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        mcp_servers=config.tools.mcp_servers,
+    )
+    try:
+        setattr(agent_loop, "messaging_config", config.messaging)
+    except Exception:
+        pass
+
+    session_id = f"cli:{authenticated.user_id}"
+    cli_channel, cli_chat_id = session_id.split(":", 1)
+
+    # Show spinner when logs are off
+    def _thinking_ctx():
+        if logs:
+            from contextlib import nullcontext
+            return nullcontext()
+        return console.status("Thinking...", spinner="dots")
+
+    async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
+        msg_cfg = getattr(agent_loop, "messaging_config", None)
+        if msg_cfg and tool_hint and not msg_cfg.send_tool_hints:
+            return
+        if msg_cfg and not tool_hint and not msg_cfg.send_progress:
+            return
+        console.print(f"  [dim][OK]?{content}[/dim]")
+
+    if message:
+        # Single message mode
+        async def run_once():
+            with _thinking_ctx():
+                response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
+            if response and getattr(response, "content", None):
+                _print_agent_response(response.content, render_markdown=markdown)
+            await agent_loop.close_mcp()
+
+        asyncio.run(run_once())
+    else:
+        # Interactive mode
+        from crabclaw.bus.events import InboundMessage
+        _init_prompt_session()
+        console.print(f"\n{__logo__} Chatting as {selected_user['display_name']} (@{selected_user['username']})")
+        console.print("Type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit\n")
+
+        def _exit_on_sigint(signum, frame):
+            _restore_terminal()
+            console.print("\nGoodbye!")
+            os._exit(0)
+
+        signal.signal(signal.SIGINT, _exit_on_sigint)
+
+        async def run_interactive():
+            bus_task = asyncio.create_task(agent_loop.run())
+            turn_done = asyncio.Event()
+            turn_done.set()
+            turn_response: list[str] = []
+
+            async def _consume_outbound():
+                while True:
+                    try:
+                        msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+                        if msg.metadata.get("_progress"):
+                            is_tool_hint = msg.metadata.get("_tool_hint", False)
+                            msg_cfg = getattr(agent_loop, "messaging_config", None)
+                            if msg_cfg and is_tool_hint and not msg_cfg.send_tool_hints:
+                                pass
+                            elif msg_cfg and not is_tool_hint and not msg_cfg.send_progress:
+                                pass
+                            else:
+                                console.print(f"  [dim][OK]?{msg.content}[/dim]")
+                        elif not turn_done.is_set():
+                            if msg.content:
+                                turn_response.append(msg.content)
+                            turn_done.set()
+                        elif msg.content:
+                            console.print()
+                            _print_agent_response(msg.content, render_markdown=markdown)
+                    except asyncio.TimeoutError:
+                        continue
+                    except asyncio.CancelledError:
+                        break
+
+            outbound_task = asyncio.create_task(_consume_outbound())
+
+            try:
+                while True:
+                    try:
+                        _flush_pending_tty_input()
+                        user_input = await _read_interactive_input_async()
+                        command = user_input.strip()
+                        if not command:
+                            continue
+
+                        if _is_exit_command(command):
+                            _restore_terminal()
+                            console.print("\nGoodbye!")
+                            break
+
+                        turn_done.clear()
+                        turn_response.clear()
+
+                        await bus.publish_inbound(InboundMessage(
+                            channel=cli_channel,
+                            sender_id=authenticated.user_id,
                             chat_id=cli_chat_id,
                             content=user_input,
                         ))

@@ -15,16 +15,6 @@ class ContactInfo:
 
 
 @dataclass
-class ChannelConfig:
-    """Channel configuration."""
-    channel_type: str  # email, feishu, etc.
-    config: Dict[str, Any]
-    name: str = ""
-    is_active: bool = True
-    created_at: datetime = field(default_factory=datetime.now)
-
-
-@dataclass
 class UserProfile:
     """User profile."""
     user_id: str
@@ -32,7 +22,6 @@ class UserProfile:
     display_name: str
     password_hash: str
     contacts: List[ContactInfo] = field(default_factory=list)
-    channel_configs: List[ChannelConfig] = field(default_factory=list)
     preferences: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
@@ -48,11 +37,6 @@ class UserProfile:
             for c in self.contacts:
                 c.is_primary = False
         self.contacts.append(contact)
-        self.updated_at = datetime.now()
-
-    def add_channel_config(self, config: ChannelConfig) -> None:
-        """Add a channel configuration."""
-        self.channel_configs.append(config)
         self.updated_at = datetime.now()
 
     def update_preferences(self, preferences: Dict[str, Any]) -> None:
@@ -76,16 +60,6 @@ class UserProfile:
                 }
                 for c in self.contacts
             ],
-            "channel_configs": [
-                {
-                    "channel_type": c.channel_type,
-                    "name": c.name,
-                    "is_active": c.is_active,
-                    "config": c.config,
-                    "created_at": c.created_at.isoformat()
-                }
-                for c in self.channel_configs
-            ],
             "preferences": self.preferences,
             "metadata": self.metadata,
             "created_at": self.created_at.isoformat(),
@@ -108,24 +82,12 @@ class UserProfile:
             for c in data.get("contacts", [])
         ]
         
-        channel_configs = [
-            ChannelConfig(
-                channel_type=c["channel_type"],
-                name=c.get("name", ""),
-                is_active=c.get("is_active", True),
-                config=c["config"],
-                created_at=datetime.fromisoformat(c.get("created_at", datetime.now().isoformat()))
-            )
-            for c in data.get("channel_configs", [])
-        ]
-        
         return cls(
             user_id=data["user_id"],
             username=data["username"],
             display_name=data["display_name"],
             password_hash=data["password_hash"],
             contacts=contacts,
-            channel_configs=channel_configs,
             preferences=data.get("preferences", {}),
             metadata=data.get("metadata", {}),
             created_at=datetime.fromisoformat(data.get("created_at", datetime.now().isoformat())),

@@ -277,6 +277,17 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get('exec', {})
     if 'restrictToWorkspace' in exec_cfg and 'restrictToWorkspace' not in tools:
         tools['restrictToWorkspace'] = exec_cfg.pop('restrictToWorkspace')
+    channels = data.pop('channels', None)
+    if isinstance(channels, dict):
+        messaging = data.get('messaging', {}) if isinstance(data.get('messaging', {}), dict) else {}
+        for key in ("send_progress", "sendProgress"):
+            if key in channels:
+                messaging["sendProgress"] = channels[key]
+        for key in ("send_tool_hints", "sendToolHints"):
+            if key in channels:
+                messaging["sendToolHints"] = channels[key]
+        if messaging:
+            data["messaging"] = messaging
     return data
 
 

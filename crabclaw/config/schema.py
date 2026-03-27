@@ -205,6 +205,13 @@ class ChannelsConfig(Base):
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
 
 
+class MessagingConfig(Base):
+    """Message streaming behavior for outbound responses."""
+
+    send_progress: bool = True    # stream agent's text progress to the channel
+    send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("-))
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -352,7 +359,7 @@ class Config(BaseSettings):
     psychology: dict[str, Any] = Field(default_factory=dict)
     
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
-    channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
+    messaging: MessagingConfig = Field(default_factory=MessagingConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
@@ -363,6 +370,7 @@ class Config(BaseSettings):
     clawsocial_url: str = "http://127.0.0.1:8000"  # URL for ClawSociety/ClawSocialGraph
     llm_routes: dict[str, str] = Field(default_factory=dict)
     provider_test_status: dict[str, bool] = Field(default_factory=dict)  # Track provider test results
+    channel_mode: str = "multi"  # Channel communication mode: "multi" (multi-channel subscription) or "single" (single-channel subscription)
 
     @property
     def workspace_path(self) -> Path:

@@ -380,6 +380,15 @@ class DashboardServer:
                                 # Skip sending user_message back to the client as it's already displayed
                                 continue
 
+                            # Handle inbound messages from other channels (show in dashboard)
+                            if msg_type == "inbound_message":
+                                try:
+                                    session = self.session_manager.get_or_create("dashboard", user_scope=user_id)
+                                    session.add_message("user", msg.get("content", ""))
+                                    self.session_manager.save(session)
+                                except Exception as e:
+                                    logger.warning(f"Failed to persist inbound history: {e}")
+
                             # Persist assistant messages for history
                             if msg_type in ("agent_reply", "outbound_message"):
                                 try:
@@ -393,7 +402,10 @@ class DashboardServer:
                             logger.debug(f"Broadcast loop: Message sent successfully")
                         except Exception as e:
                             logger.error(f"Broadcast loop error for user '{user_id}': {e}", exc_info=True)
-                            break
+                            # Keep the stream alive for transient/bad-payload events.
+                            # A single bad event should not stop portrait/state updates.
+                            await asyncio.sleep(0.2)
+                            continue
 
                 async def handle_messages():
                     async for msg in ws:
@@ -472,25 +484,38 @@ class DashboardServer:
                                 if saved is None:
                                     await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": False, "error": "save_failed"}}, ensure_ascii=False))
                                 else:
+                                    # Dynamic load of channel instance
+                                    if self.scheduler and self.scheduler.channel_manager:
+                                        await self.scheduler.channel_manager.add_or_update_channel(user_id, saved["channel_type"], saved)
                                     await ws.send(json.dumps({"type": "channel_config_result", "data": {"ok": True, "config": saved}}, ensure_ascii=False))
                                     await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "delete_channel_config":
                                 body = data.get("data", {})
+                                account_id = body.get("account_id", "")
+                                channel_type = body.get("channel_type", "")
                                 ok = self.user_manager.delete_channel_config(
                                     user_id=user_id,
-                                    channel_type=body.get("channel_type", ""),
-                                    account_id=body.get("account_id", ""),
+                                    channel_type=channel_type,
+                                    account_id=account_id,
                                 )
+                                if ok and self.scheduler and self.scheduler.channel_manager:
+                                    await self.scheduler.channel_manager.remove_channel(user_id, channel_type, account_id)
                                 await ws.send(json.dumps({"type": "channel_config_delete_result", "data": {"ok": ok}}, ensure_ascii=False))
                                 await ws.send(json.dumps(self._safe_get_channels_payload(user_id), ensure_ascii=False))
                             elif msg_type == "set_channel_config_active":
                                 body = data.get("data", {})
+                                channel_type = body.get("channel_type", "")
+                                account_id = body.get("account_id", "")
+                                is_active = body.get("is_active", False)
                                 updated = self.user_manager.set_channel_config_active(
                                     user_id=user_id,
-                                    channel_type=body.get("channel_type", ""),
-                                    account_id=body.get("account_id", ""),
-                                    is_active=body.get("is_active", False),
+                                    channel_type=channel_type,
+                                    account_id=account_id,
+                                    is_active=is_active,
                                 )
+                                # Dynamic channel change
+                                if self.scheduler and self.scheduler.channel_manager:
+                                    await self.scheduler.channel_manager.set_channel_active(user_id, channel_type, account_id, is_active)
                                 await ws.send(
                                     json.dumps(
                                         {
@@ -659,6 +684,16 @@ class DashboardServer:
                                                 logger.info(f"Updated state_push_interval_s to {self.scheduler.config.dashboard.state_push_interval_s}")
                                             except (ValueError, TypeError) as e:
                                                 logger.warning(f"Invalid push_interval value: {body.get('push_interval')}, error: {e}")
+
+                                        # Handle channel_mode update
+                                        if "channel_mode" in body:
+                                            mode = body["channel_mode"]
+                                            if mode in ["multi", "single"]:
+                                                config.channel_mode = mode
+                                                save_config(config)
+                                                logger.info(f"Updated channel_mode to {mode}")
+                                            else:
+                                                logger.warning(f"Invalid channel_mode value: {mode}")
 
                                 except Exception as e:
                                     success = False
@@ -969,13 +1004,8 @@ class DashboardServer:
             if hasattr(config, "llm_routes"):
                 llm_routes = config.llm_routes
 
-            # Get channels safely
-            channels = []
-            try:
-                if hasattr(config, "channels") and hasattr(config.channels, "enabled"):
-                    channels = list(config.channels.enabled)
-            except Exception as e:
-                logger.warning("Failed to get channels: %s", e)
+            # Channels are now managed per-user in workspace/portfolios.
+            channels: list[str] = []
 
             # Get workspace safely
             workspace = ""

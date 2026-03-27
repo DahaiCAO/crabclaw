@@ -1235,6 +1235,45 @@ button:hover{border-color: rgba(125,211,252,.45)}
   border-color: var(--accent);
 }
 
+/* Channel Mode Toggle Styles */
+.channel-mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.channel-mode-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.channel-mode-btn:hover {
+  border-color: var(--accent);
+}
+
+.channel-mode-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+[data-theme="light"] .channel-mode-btn {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme="light"] .channel-mode-btn.active {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #ffffff;
+}
+
 /* Notification animations */
 @keyframes slideIn {
   from {
@@ -2074,14 +2113,31 @@ input:checked + .slider-round:before {
 }
 
 #section-channels .channels-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  align-content: flex-start;
+  align-content: start;
   padding-right: 6px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+}
+
+#section-channels .channel-overview,
+#section-channels .channel-item-wide {
+  grid-column: 1 / -1;
+}
+
+#section-channels .channel-item {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  #section-channels .channels-content {
+    grid-template-columns: 1fr;
+  }
 }
 
 #section-channels .channels-content::-webkit-scrollbar {
@@ -2206,11 +2262,12 @@ input:checked + .slider-round:before {
 
 .channel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .channel-field {
+  min-width: 0;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2343,6 +2400,8 @@ input:checked + .slider-round:before {
 
 .config-input {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card);
@@ -2350,6 +2409,18 @@ input:checked + .slider-round:before {
   padding: 8px 10px;
   margin-bottom: 8px;
   font-size: 12px;
+}
+
+#section-channels .config-input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+  .channel-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .btn.small {
