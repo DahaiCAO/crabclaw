@@ -500,12 +500,7 @@ class AgentLoop:
             stacklevel=2
         )
 
-        from crabclaw.config.loader import load_config
-        from crabclaw.sapiens.agent import AgentSapiens
-        from crabclaw.agent.scheduler import BehaviorScheduler
-        from crabclaw.bus.broadcaster import BroadcastManager
-
-        self._config = load_config()
+        self._config = None
         self._bus = bus
         self._provider = provider
         self._workspace = workspace
@@ -513,45 +508,79 @@ class AgentLoop:
         self._sapiens_core = None
         self._running = False
         self._mcp_servers = mcp_servers
-        self.messaging_config = getattr(self._config, 'messaging', None)
+        self._inbound_task = None
+        self.messaging_config = None
 
         try:
-            self._sapiens_core = AgentSapiens(
-                agent_id="cli-agent",
-                personality_drives={},
-                name="CLI Agent",
-                llm_provider=provider,
-                workspace_path=workspace,
-                tool_registry=None,
-            )
-            self._scheduler = BehaviorScheduler(
-                self._config,
-                sapiens_core=self._sapiens_core,
-                enable_gateway=False,
-                enable_dashboard=False,
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize AgentLoop: {e}")
-            raise
+            from crabclaw.config.loader import load_config
+            self._config = load_config()
+            self.messaging_config = getattr(self._config, 'messaging', None)
+        except Exception:
+            pass
 
     async def run(self):
-        """Run the agent loop."""
-        if self._scheduler and not self._running:
-            self._running = True
-            try:
-                await self._scheduler.run()
-            except Exception as e:
-                logger.error(f"Error in AgentLoop run: {e}")
-                raise
+        """Run the agent loop - listens for inbound messages and replies directly."""
+        if self._running:
+            return
+        
+        self._running = True
+        
+        async def handle_inbound():
+            while self._running and self._bus:
+                try:
+                    msg = await asyncio.wait_for(self._bus.consume_inbound(), timeout=1.0)
+                    logger.debug(f"AgentLoop compat: Received inbound: {msg.content[:50]}...")
+                    
+                    response_content = ""
+                    try:
+                        if self._provider:
+                            messages = [
+                                {"role": "system", "content": "You are a helpful AI assistant."},
+                                {"role": "user", "content": msg.content}
+                            ]
+                            response = await self._provider.chat(
+                                messages=messages,
+                                model=None,
+                                temperature=0.7,
+                                max_tokens=2048,
+                            )
+                            if response and response.content:
+                                response_content = response.content.strip()
+                    except Exception as e:
+                        logger.warning(f"Direct LLM call failed: {e}")
+                        response_content = f"[Error: {str(e)}]"
+                    
+                    if response_content:
+                        from crabclaw.bus.events import OutboundMessage
+                        outbound = OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content=response_content,
+                            metadata={
+                                "source": "cli-compat",
+                            },
+                        )
+                        await self._bus.publish_outbound(outbound)
+                        logger.debug(f"AgentLoop compat: Published outbound")
+                        
+                except asyncio.TimeoutError:
+                    continue
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in AgentLoop compat inbound handler: {e}", exc_info=True)
+        
+        self._inbound_task = asyncio.create_task(handle_inbound())
+        try:
+            await self._inbound_task
+        except asyncio.CancelledError:
+            pass
 
     def stop(self):
         """Stop the agent loop."""
         self._running = False
-        if self._scheduler:
-            try:
-                asyncio.create_task(self._scheduler.stop())
-            except Exception:
-                pass
+        if self._inbound_task:
+            self._inbound_task.cancel()
 
     async def process_direct(self, message: str, session_id: str, on_progress=None):
         """
