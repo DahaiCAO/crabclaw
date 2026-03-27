@@ -300,11 +300,10 @@ class IOProcessor:
 
                     sent = 0
                     for target_channel, target_chat_id in outbound_targets:
-                        # Avoid rebroadcasting to dashboard via outbound paths when already sent as agent_reply.
-                        # This prevents duplicate frontend messages and 1001 caused by redundant websocket traffic.
-                        if target_channel == "dashboard" and target_chat_id == "direct":
-                            logger.info(f"[IO] Skipping outbound publish to dashboard/direct (already agent_reply) for scope={reply_scope}")
-                            continue
+                        # Temporary: Remove the skip to see if messages come back
+                        # if target_channel == "dashboard" and target_chat_id == "direct":
+                        #     logger.info(f"[IO] Skipping outbound publish to dashboard/direct (already agent_reply) for scope={reply_scope}")
+                        #     continue
 
                         event_id = self._make_event_id(
                             "out",

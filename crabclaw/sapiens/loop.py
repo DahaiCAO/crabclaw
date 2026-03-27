@@ -147,11 +147,20 @@ class PersistentAgentLoop:
                             # We need to run this async method in the sync loop
                             # Create a new event loop for this sync thread to run the async LLM call
                             try:
+                                # Extract metadata from action params
+                                metadata = action.params.get("original_stimulus", {}).metadata if hasattr(action.params.get("original_stimulus", {}), 'metadata') else {}
+                                if not metadata:
+                                    metadata = {
+                                        "user_id": action.params.get("scope"),
+                                        "channel": action.params.get("source_channel"),
+                                        "chat_id": action.params.get("source_chat_id"),
+                                    }
+                                
                                 # Use a new event loop since this is running in a dedicated thread
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
                                 response_text = loop.run_until_complete(
-                                    self.agent.action_system.decision.generate_response(content, source)
+                                    self.agent.action_system.decision.generate_response(content, source, metadata=metadata)
                                 )
                                 loop.close()
                             except Exception as e:

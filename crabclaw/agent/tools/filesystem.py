@@ -129,10 +129,20 @@ class FileSystemAuditLogger:
         await self.log_operation(operation, path, user_id, f"blocked: {reason}")
 
 
+def _is_under(path: Path, directory: Path) -> bool:
+    """Check if a path is under a directory."""
+    try:
+        path.relative_to(directory.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _resolve_path(
     path: str, 
     workspace: Path | None = None, 
     allowed_dir: Path | None = None,
+    extra_allowed_dirs: list[Path] | None = None,
     restrict_traversal: bool = True
 ) -> Path:
     """Resolve path against workspace (if relative) and enforce directory restriction."""
@@ -172,11 +182,9 @@ def _resolve_path(
     # Enforce allowed directory restriction
     if allowed_dir:
         try:
-            allowed_resolved = allowed_dir.resolve()
-            # Check if resolved path is within allowed directory
-            resolved.relative_to(allowed_resolved)
-        except ValueError:
-            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+            all_dirs = [allowed_dir] + (extra_allowed_dirs or [])
+            if not any(_is_under(resolved, d) for d in all_dirs):
+                raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
         except Exception as e:
             raise PermissionError(f"Error checking path restriction: {e}") from e
     
@@ -245,9 +253,10 @@ def _compute_file_hash(path: Path) -> str:
 class ReadFileTool(Tool):
     """Tool to read file contents."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, extra_allowed_dirs: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._extra_allowed_dirs = extra_allowed_dirs
         self._policy = FileSystemPolicy(allowed_dir=allowed_dir)
 
     @property
@@ -268,7 +277,7 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._extra_allowed_dirs)
             
             if not file_path.exists():
                 return f"Error: File not found: {path}"
@@ -300,9 +309,10 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, extra_allowed_dirs: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._extra_allowed_dirs = extra_allowed_dirs
         self._policy = FileSystemPolicy(allowed_dir=allowed_dir)
 
     @property
@@ -331,7 +341,7 @@ class WriteFileTool(Tool):
             if len(content_bytes) > self._policy.max_file_size_write:
                 return f"Error: Content size {len(content_bytes)} exceeds maximum allowed {self._policy.max_file_size_write}"
             
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._extra_allowed_dirs)
             
             # Validate extension
             _validate_extension(file_path, self._policy)
@@ -357,9 +367,10 @@ class WriteFileTool(Tool):
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, extra_allowed_dirs: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._extra_allowed_dirs = extra_allowed_dirs
         self._policy = FileSystemPolicy(allowed_dir=allowed_dir)
 
     @property
@@ -384,7 +395,7 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._extra_allowed_dirs)
             
             if not file_path.exists():
                 return f"Error: File not found: {path}"
@@ -462,9 +473,10 @@ class EditFileTool(Tool):
 class ListDirTool(Tool):
     """Tool to list directory contents."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, extra_allowed_dirs: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._extra_allowed_dirs = extra_allowed_dirs
         self._policy = FileSystemPolicy(allowed_dir=allowed_dir)
 
     @property
@@ -485,7 +497,7 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            dir_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            dir_path = _resolve_path(path, self._workspace, self._allowed_dir, self._extra_allowed_dirs)
             
             if not dir_path.exists():
                 return f"Error: Directory not found: {path}"
@@ -512,9 +524,10 @@ class ListDirTool(Tool):
 class FileInfoTool(Tool):
     """Tool to get file information."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, extra_allowed_dirs: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._extra_allowed_dirs = extra_allowed_dirs
         self._policy = FileSystemPolicy(allowed_dir=allowed_dir)
 
     @property
@@ -535,7 +548,7 @@ class FileInfoTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._extra_allowed_dirs)
             
             if not file_path.exists():
                 return f"Error: Path not found: {path}"

@@ -26,15 +26,30 @@ class DecisionEngine:
     It distinguishes between fast "reflexive" actions (natural instincts)
     and slow "deliberative" actions (social/goal-driven behavior).
     """
-    def __init__(self, axiology: "AxiologySystem", llm_provider=None):
+    def __init__(self, axiology: "AxiologySystem", llm_provider=None, workspace=None, tool_registry=None):
         self.axiology = axiology
         self.llm_provider = llm_provider
+        self.workspace = workspace
+        self.tool_registry = tool_registry
+        
+        if self.workspace:
+            try:
+                from crabclaw.agent.context import ContextBuilder
+                self.context_builder = ContextBuilder(self.workspace)
+                logger.info(f"[DecisionEngine] Initialized ContextBuilder with workspace: {self.workspace}")
+            except Exception as e:
+                logger.warning(f"[DecisionEngine] Failed to initialize ContextBuilder: {e}")
+                self.context_builder = None
+        else:
+            self.context_builder = None
 
-    async def generate_response(self, message: str, source: str) -> str:
+    async def generate_response(self, message: str, source: str, metadata=None) -> str:
         """
         Generate a response to an incoming message using the LLM.
         """
         import time
+        import traceback
+        import json
         start_time = time.time()
         logger.info(f"[LLM] Starting response generation for message from {source}: {message[:50]}...")
         
@@ -53,33 +68,116 @@ class DecisionEngine:
             return f"[Auto response to: {message}] LLM provider not configured."
 
         try:
-            # Moonshot API sometimes flags "Crabclaw" or overly generic AI assistant prompts as sensitive.
-            # We provide a more specific, benign system prompt.
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are a friendly and helpful conversational partner. Please respond to the user's message naturally and concisely. Always respond in the same language as the user's message."
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ]
+            user_scope = None
+            channel = None
+            chat_id = None
+            if metadata:
+                user_scope = metadata.get("user_id")
+                channel = metadata.get("channel")
+                chat_id = metadata.get("chat_id")
+            
+            if self.context_builder:
+                routing_key = None
+                if user_scope:
+                    routing_key = f"user:{user_scope}:{channel or source}:{chat_id or 'direct'}"
+                elif channel and chat_id:
+                    routing_key = f"{channel}:{chat_id}"
+                
+                messages = self.context_builder.build_messages(
+                    history=[],
+                    current_message=message,
+                    skill_names=None,
+                    media=None,
+                    channel=channel,
+                    chat_id=chat_id,
+                    user_scope=user_scope
+                )
+                logger.info(f"[LLM] Using ContextBuilder with skills enabled")
+            else:
+                # Fallback to simple system prompt
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "You are a friendly and helpful conversational partner. Please respond to the user's message naturally and concisely. Always respond in the same language as the user's message."
+                    },
+                    {
+                        "role": "user",
+                        "content": message
+                    }
+                ]
+                logger.info(f"[LLM] Using simple system prompt (no ContextBuilder)")
 
-            logger.info(f"[LLM] Calling LLM provider: {type(provider).__name__}")
-            response = await provider.chat(
-                messages=messages,
-                model=None,
-                temperature=0.7,
-                max_tokens=2048,
-            )
+            # Get tool definitions if available
+            tools = None
+            if self.tool_registry:
+                tools = self.tool_registry.get_definitions()
+                logger.info(f"[LLM] Loaded {len(tools) if tools else 0} tool definitions")
+            
+            tools_used = []
+            MAX_ITERATIONS = 10
+            iteration = 0
+            
+            while iteration < MAX_ITERATIONS:
+                iteration += 1
+                logger.info(f"[LLM] Agent loop iteration {iteration}/{MAX_ITERATIONS}")
+                
+                logger.info(f"[LLM] Calling LLM provider: {type(provider).__name__}")
+                response = await provider.chat(
+                    messages=messages,
+                    model=None,
+                    temperature=0.7,
+                    max_tokens=2048,
+                    tools=tools,
+                )
+                
+                if response.tool_calls and len(response.tool_calls) > 0:
+                    # Execute tool calls
+                    for tool_call in response.tool_calls:
+                        tools_used.append(tool_call.name)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                        
+                        if self.tool_registry:
+                            result = await self.tool_registry.execute(tool_call.name, tool_call.arguments)
+                            messages.append({
+                                "role": "assistant",
+                                "content": response.content or "",
+                                "tool_calls": [
+                                    {
+                                        "id": tool_call.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool_call.name,
+                                            "arguments": json.dumps(tool_call.arguments, ensure_ascii=False)
+                                        }
+                                    }
+                                ]
+                            })
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": str(result)
+                            })
+                        else:
+                            logger.warning("Tool registry not available, skipping tool execution")
+                            break
+                    continue
+                
+                # No more tool calls, we're done
+                if tools_used:
+                    logger.info(f"[LLM] Tools used: {tools_used}")
+                
+                elapsed = time.time() - start_time
+                logger.info(f"[LLM] Response generated in {elapsed:.2f}s, content length: {len(response.content) if response.content else 0}")
 
+                if response.content:
+                    return response.content.strip()
+                return "[Sorry, I could not generate a response.]"
+            
+            # Max iterations reached
             elapsed = time.time() - start_time
-            logger.info(f"[LLM] Response generated in {elapsed:.2f}s, content length: {len(response.content) if response.content else 0}")
-
-            if response.content:
-                return response.content.strip()
-            return "[Sorry, I could not generate a response.]"
+            logger.warning(f"[LLM] Reached max iterations ({MAX_ITERATIONS}) after {elapsed:.2f}s")
+            return "[Sorry, the task is too complex for me to handle right now.]"
 
         except Exception as e:
             elapsed = time.time() - start_time
@@ -330,6 +428,6 @@ class ActionSystem:
     """
     A container for decision-making and execution components.
     """
-    def __init__(self, physiology: "PhysiologySystem", sociology: "SociologySystem", axiology: "AxiologySystem", llm_provider=None):
-        self.decision = DecisionEngine(axiology=axiology, llm_provider=llm_provider)
+    def __init__(self, physiology: "PhysiologySystem", sociology: "SociologySystem", axiology: "AxiologySystem", llm_provider=None, workspace=None, tool_registry=None):
+        self.decision = DecisionEngine(axiology=axiology, llm_provider=llm_provider, workspace=workspace, tool_registry=tool_registry)
         self.executor = ActionExecutor(physiology, sociology)

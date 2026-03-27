@@ -17,6 +17,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
+from loguru import logger
 from crabclaw import __logo__, __version__
 from crabclaw.config.loader import get_config_path, load_config, set_config_path
 from crabclaw.config.schema import Config
@@ -1142,6 +1143,10 @@ def gateway(
         workspace_path=cfg.workspace_path
     )
     scheduler = BehaviorScheduler(cfg, sapiens_core=sapiens_core)
+    # Pass the tool registry to the decision engine
+    if hasattr(sapiens_core, 'action_system') and hasattr(sapiens_core.action_system, 'decision'):
+        sapiens_core.action_system.decision.tool_registry = scheduler.tool_registry
+        logger.info("Tool registry passed to DecisionEngine")
 
     async def run():
         try:

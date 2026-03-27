@@ -124,7 +124,9 @@ class AgentSapiens:
             physiology=self.physiology,
             sociology=self.sociology,
             axiology=self.axiology,
-            llm_provider=self.llm_provider
+            llm_provider=self.llm_provider,
+            workspace=self.workspace_path,
+            tool_registry=tool_registry
         )
 
         # The core heartbeat of the agent, passing a reference to self

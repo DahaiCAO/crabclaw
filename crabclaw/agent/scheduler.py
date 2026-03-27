@@ -15,7 +15,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from crabclaw.agent.state import InternalState
+from crabclaw.agent.skills import BUILTIN_SKILLS_DIR
 from crabclaw.agent.tools.registry import ToolRegistry
+from crabclaw.agent.tools.cron import CronTool
+from crabclaw.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from crabclaw.agent.tools.message import MessageTool
+from crabclaw.agent.tools.shell import ExecTool
+from crabclaw.agent.tools.spawn import SpawnTool
+from crabclaw.agent.tools.web import WebFetchTool, WebSearchTool
 from crabclaw.bus.broadcaster import BroadcastManager
 from crabclaw.bus.queue import MessageBus
 from crabclaw.channels.manager import ChannelManager
@@ -30,6 +37,7 @@ from crabclaw.gateway.server import GatewayServer, GatewayServerConfig
 from crabclaw.i18n.translator import detect_system_language, set_language
 from crabclaw.providers.base import LLMProvider
 from crabclaw.session.manager import SessionManager
+from crabclaw.agent.subagent import SubagentManager
 from crabclaw.templates.manager import PromptManager
 from crabclaw.user.manager import UserManager
 from crabclaw.utils.audit_logger import SecureAuditLogger
@@ -71,23 +79,131 @@ class BehaviorScheduler:
         self.user_manager = UserManager(self.workspace)
         self._audit_tailer: JsonlTailer | None = None
         self._state_ticker: asyncio.Task | None = None
-
-        # 3. Initialize peripheral services
+        
+        # MCP related
+        self._mcp_servers: dict = getattr(self.config, 'mcp_servers', {})
+        self._mcp_stack = None
+        self._mcp_connected = False
+        self._mcp_connecting = False
+        self._background_tasks: list = []
+        
+        # 2. Initialize peripheral services (need cron_service before registering tools)
         self.cron_service = self._init_cron_service()
+        
+        # 3. Initialize subagent manager (only if provider is available)
+        self.subagents = None
+        if self.provider:
+            from crabclaw.config.schema import ExecToolConfig
+            web_search_config = getattr(self.config, 'web_search', None)
+            brave_api_key = getattr(web_search_config, 'api_key', None) if web_search_config else None
+            exec_config = getattr(self.config, 'exec', None)
+            restrict_to_workspace = getattr(self.config, 'restrict_to_workspace', False)
+            
+            self.subagents = SubagentManager(
+                provider=self.provider,
+                workspace=self.workspace,
+                bus=self.bus,
+                prompt_manager=self.prompt_manager,
+                brave_api_key=brave_api_key,
+                web_proxy=getattr(self.config, 'web_proxy', None),
+                exec_config=exec_config or ExecToolConfig(),
+                restrict_to_workspace=restrict_to_workspace,
+            )
+        
+        # 4. Register default tools
+        self._register_default_tools()
+
+        # 5. Initialize other peripheral services
         self.channel_manager = ChannelManager(self.config, self.bus)
         self.gateway_server = self._init_gateway_server() if enable_gateway else None
         self.dashboard_server = self._init_dashboard_server() if enable_dashboard else None
 
-        # 4. Initialize the three major engines
+        # 5. Initialize the three major engines
         self.reactive_engine = self._init_reactive_engine()
 
-        # 7. Establish callback dependencies between services
+        # 6. Establish callback dependencies between services
         self._setup_callbacks()
 
-        # 8. Start prompt evolution background task
+        # 7. Start prompt evolution background task
         self._evolution_task: asyncio.Task | None = None
 
         self._tasks = []
+    
+    def _register_default_tools(self) -> None:
+        """Register the default set of tools."""
+        restrict_to_workspace = getattr(self.config, 'restrict_to_workspace', False)
+        allowed_dir = self.workspace if restrict_to_workspace else None
+        extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+        
+        self.tool_registry.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
+        for cls in (WriteFileTool, EditFileTool, ListDirTool):
+            self.tool_registry.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+        
+        if hasattr(self.config, 'exec') and getattr(self.config.exec, 'enable', True):
+            self.tool_registry.register(ExecTool(
+                working_dir=str(self.workspace),
+                timeout=getattr(self.config.exec, 'timeout', 60),
+                restrict_to_workspace=restrict_to_workspace,
+                path_append=getattr(self.config.exec, 'path_append', None),
+            ))
+        
+        web_search_config = getattr(self.config, 'web_search', None)
+        api_key = None
+        max_results = 5
+        if web_search_config:
+            api_key = getattr(web_search_config, 'api_key', None)
+            max_results = getattr(web_search_config, 'max_results', 5)
+        self.tool_registry.register(WebSearchTool(api_key=api_key, max_results=max_results, proxy=getattr(self.config, 'web_proxy', None)))
+        self.tool_registry.register(WebFetchTool(proxy=getattr(self.config, 'web_proxy', None)))
+        self.tool_registry.register(MessageTool(send_callback=self.bus.publish_outbound))
+        if self.subagents:
+            self.tool_registry.register(SpawnTool(manager=self.subagents))
+        if self.cron_service:
+            self.tool_registry.register(CronTool(self.cron_service))
+
+    async def _connect_mcp(self) -> None:
+        """Connect to configured MCP servers (one-time, lazy)."""
+        if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
+            return
+        self._mcp_connecting = True
+        
+        try:
+            from crabclaw.agent.tools.mcp import connect_mcp_servers
+            from contextlib import AsyncExitStack
+            
+            self._mcp_stack = AsyncExitStack()
+            await self._mcp_stack.__aenter__()
+            await connect_mcp_servers(self._mcp_servers, self.tool_registry, self._mcp_stack)
+            self._mcp_connected = True
+            logger.info("Connected to MCP servers")
+        except Exception as e:
+            logger.error("Failed to connect MCP servers (will retry next message): {}", e)
+            if self._mcp_stack:
+                try:
+                    await self._mcp_stack.aclose()
+                except Exception:
+                    pass
+                self._mcp_stack = None
+        finally:
+            self._mcp_connecting = False
+
+    async def _close_mcp(self) -> None:
+        """Drain pending background archives, then close MCP connections."""
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+        if self._mcp_stack:
+            try:
+                await self._mcp_stack.aclose()
+            except (RuntimeError, Exception):
+                pass
+            self._mcp_stack = None
+
+    def _schedule_background(self, coro) -> None:
+        """Schedule a coroutine as a tracked background task (drained on shutdown)."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.append(task)
+        task.add_done_callback(self._background_tasks.remove)
 
     @staticmethod
     def _stable_event_id(prefix: str, payload: dict) -> str:
@@ -405,7 +521,13 @@ class BehaviorScheduler:
         # Save inbound user message to session history
         try:
             session = self.session_manager.get_or_create("dashboard", user_scope=scope)
-            session.add_message("user", msg.content)
+            session.add_message(
+                "user", 
+                msg.content,
+                channel=msg.channel,
+                sender_id=msg.sender_id,
+                chat_id=msg.chat_id
+            )
             self.session_manager.save(session)
         except Exception as e:
             logger.warning("Failed to persist inbound history: {}", e)
@@ -665,6 +787,9 @@ class BehaviorScheduler:
         mind_thread.start()
         logger.info("Sapiens mind thread started.")
 
+        # Connect to MCP servers
+        await self._connect_mcp()
+        
         # Start the core reactive engine and channel manager
         reactive_task = asyncio.create_task(self.reactive_engine.run())
         channels_task = asyncio.create_task(self.channel_manager.start_all())
@@ -781,6 +906,9 @@ class BehaviorScheduler:
 
         # Stop all background tasks and engines
         self.cron_service.stop()
+        
+        # Close MCP connections
+        await self._close_mcp()
 
         # Stop reactive engine (IOProcessor)
         if hasattr(self.reactive_engine, "stop"):

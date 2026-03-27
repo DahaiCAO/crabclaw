@@ -196,6 +196,26 @@ function loadChatHistory(messages) {
     
     contentContainer.appendChild(contentDiv);
     
+    // Add channel info if available
+    if (isUser && msg.channel) {
+      const channelLabel = document.createElement('div');
+      channelLabel.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 4px; display: flex; align-items: center; gap: 4px;';
+      
+      // Channel emoji mapping
+      const channelEmojis = {
+        'feishu': '📱',
+        'mochat': '💬',
+        'discord': '🎮',
+        'matrix': '🟣',
+        'dingtalk': '🔔',
+        'dashboard': '💻',
+      };
+      const emoji = channelEmojis[msg.channel.toLowerCase()] || '📨';
+      const senderDisplay = msg.sender_id ? ` ${msg.sender_id}` : '';
+      channelLabel.textContent = `${emoji} [${msg.channel}]${senderDisplay}`;
+      contentContainer.appendChild(channelLabel);
+    }
+    
     // Add timestamp if available
     if (msg.timestamp) {
       const timestampDiv = document.createElement("div");
@@ -3857,22 +3877,47 @@ function connect(){
         const messageDiv = document.createElement('div');
         messageDiv.className = 'chat-message user';
         
-        // Add channel indicator
-        const channelLabel = document.createElement('div');
-        channelLabel.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.7); margin-bottom: 4px;';
-        channelLabel.textContent = `[${data.channel}] ${data.sender_id || 'Unknown'}`;
+        const avatarDiv = document.createElement("div");
+        avatarDiv.className = "message-avatar";
+        avatarDiv.textContent = "👤";
+        
+        const contentContainer = document.createElement("div");
+        contentContainer.className = "message-content-container";
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
         contentDiv.textContent = data.content;
         
+        contentContainer.appendChild(contentDiv);
+        
+        // Add channel info if available - use emoji for different channels
+        if (data.channel) {
+          const channelLabel = document.createElement('div');
+          channelLabel.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 4px; display: flex; align-items: center; gap: 4px;';
+          
+          // Channel emoji mapping
+          const channelEmojis = {
+            'feishu': '📱',
+            'mochat': '💬',
+            'discord': '🎮',
+            'matrix': '🟣',
+            'dingtalk': '🔔',
+            'dashboard': '💻',
+          };
+          const emoji = channelEmojis[data.channel.toLowerCase()] || '📨';
+          const senderDisplay = data.sender_id ? ` ${data.sender_id}` : '';
+          channelLabel.textContent = `${emoji} [${data.channel}]${senderDisplay}`;
+          contentContainer.appendChild(channelLabel);
+        }
+        
+        // Add timestamp
         const timeDiv = document.createElement('div');
         timeDiv.className = 'message-timestamp';
-        timeDiv.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+        timeDiv.textContent = data.timestamp ? new Date(data.timestamp * 1000).toLocaleString() : new Date().toLocaleString();
+        contentContainer.appendChild(timeDiv);
         
-        messageDiv.appendChild(channelLabel);
-        messageDiv.appendChild(contentDiv);
-        messageDiv.appendChild(timeDiv);
+        messageDiv.appendChild(avatarDiv);
+        messageDiv.appendChild(contentContainer);
         chatMessages.appendChild(messageDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }

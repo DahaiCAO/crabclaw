@@ -770,7 +770,7 @@ button:hover{border-color: rgba(125,211,252,.45)}
 
 .message-timestamp {
   font-size: 10px;
-  color: var(--muted);
+  color: rgba(255,255,255,0.75);
   white-space: nowrap;
   margin-top: 4px;
   align-self: flex-end;
@@ -778,6 +778,7 @@ button:hover{border-color: rgba(125,211,252,.45)}
 
 .chat-message.assistant .message-timestamp {
   align-self: flex-start;
+  color: var(--muted);
 }
 
 .chat-message.user {
@@ -790,7 +791,17 @@ button:hover{border-color: rgba(125,211,252,.45)}
 }
 
 [data-theme="light"] .chat-message.user {
-  color: white;
+  background: #f0f9ff;
+  color: #0c4a6e;
+  border: 1px solid #bae6fd;
+}
+
+[data-theme="light"] .chat-message.user .message-timestamp {
+  color: #0369a1 !important;
+}
+
+[data-theme="light"] .chat-message.user div[style*="color: rgba(255,255,255"] {
+  color: #0369a1 !important;
 }
 
 .chat-message.assistant {

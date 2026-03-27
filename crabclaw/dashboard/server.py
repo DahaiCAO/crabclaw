@@ -340,6 +340,7 @@ class DashboardServer:
                     await ws.send(json.dumps({"type": "internal_state", "data": self.scheduler.state.model_dump()}, ensure_ascii=False))
 
                 async def broadcast_loop():
+                    seen_event_ids = set()
                     while True:
                         try:
                             task_user = asyncio.create_task(q_user.get())
@@ -379,6 +380,16 @@ class DashboardServer:
                             if msg_type == "user_message":
                                 # Skip sending user_message back to the client as it's already displayed
                                 continue
+
+                            # Deduplicate messages with same event_id
+                            event_id = msg.get("event_id", "")
+                            if event_id:
+                                if event_id in seen_event_ids:
+                                    logger.debug(f"Broadcast loop: Skipping duplicate message with event_id: {event_id}")
+                                    continue
+                                seen_event_ids.add(event_id)
+                                if len(seen_event_ids) > 100:
+                                    seen_event_ids = set(list(seen_event_ids)[-50:])
 
                             # Handle inbound messages from other channels (show in dashboard)
                             if msg_type == "inbound_message":
@@ -1369,7 +1380,10 @@ class DashboardServer:
                     history.append({
                         "role": role,
                         "content": content,
-                        "timestamp": timestamp
+                        "timestamp": timestamp,
+                        "channel": msg.get("channel"),
+                        "sender_id": msg.get("sender_id"),
+                        "chat_id": msg.get("chat_id")
                     })
             return history
         except Exception as e:

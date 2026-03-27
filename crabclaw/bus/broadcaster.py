@@ -90,7 +90,10 @@ class BroadcastManager:
         all_target_queues = scoped_queues.union(self._global_subscribers)
 
         if not all_target_queues:
-            logger.warning(f"Publish called on scope '{scope}' with no subscribers. Message will be lost.")
+            if scope == "audit":
+                logger.debug(f"Publish called on scope '{scope}' with no subscribers. Message will be lost.")
+            else:
+                logger.warning(f"Publish called on scope '{scope}' with no subscribers. Message will be lost.")
             return
 
         logger.debug(f"Publishing message to {len(all_target_queues)} subscribers for scope '{scope}': {message}")

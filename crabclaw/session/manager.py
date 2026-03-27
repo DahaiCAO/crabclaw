@@ -39,6 +39,15 @@ class Session:
             "timestamp": datetime.now().isoformat(),
             **kwargs
         }
+        
+        # 去重检查：避免保存重复的消息
+        if self.messages:
+            last_msg = self.messages[-1]
+            if (last_msg.get("role") == role and 
+                last_msg.get("content") == content):
+                # 如果最后一条消息和要添加的消息完全相同，跳过添加
+                return
+        
         self.messages.append(msg)
         self.updated_at = datetime.now()
 

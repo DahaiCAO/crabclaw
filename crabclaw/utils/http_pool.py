@@ -107,9 +107,18 @@ class HTTPClientPool:
     async def close(self) -> None:
         """Close the HTTP client and release connections."""
         if self._client:
-            await self._client.aclose()
-            self._client = None
-            logger.info("Closed HTTP client pool")
+            try:
+                await self._client.aclose()
+            except RuntimeError as e:
+                if "Event loop is closed" in str(e):
+                    logger.debug("Event loop already closed when closing HTTP client")
+                else:
+                    logger.warning(f"Error closing HTTP client: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error closing HTTP client: {e}")
+            finally:
+                self._client = None
+                logger.info("Closed HTTP client pool")
 
     @property
     def is_healthy(self) -> bool:
