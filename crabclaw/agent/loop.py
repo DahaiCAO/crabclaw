@@ -190,6 +190,10 @@ class IOProcessor:
                     if scope and source_channel and source_chat:
                         self._scope_origin[scope] = (source_channel, source_chat, sender_id, time.time())
                     # Convert the broadcast message into a mental Stimulus
+                    # 复制 msg 并添加 user_id/scope 到 metadata
+                    metadata = msg.copy()
+                    metadata["user_id"] = scope
+                    metadata["scope"] = scope
                     stimulus = Stimulus(
                         source=f"{msg.get('source_channel', 'unknown')}:{msg.get('chat_id', 'unknown')}",
                         type="message",
@@ -197,7 +201,7 @@ class IOProcessor:
                         intensity=0.8, # Natural intensity for a direct message
                         urgency=0.7,   # Slightly higher urgency as it's a real-time chat
                         timestamp=msg.get("timestamp", 0),
-                        metadata=msg
+                        metadata=metadata
                     )
                     self.sapiens_core.psychology.workspace.add_stimulus(stimulus)
 
