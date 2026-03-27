@@ -463,3 +463,142 @@ class IOProcessor:
             trace_id=str(uuid.uuid4()),
         )
         return await self._clawlink_transport.send(envelope)
+
+
+class AgentLoop:
+    """
+    Backward compatibility wrapper for CLI commands.
+
+    This class provides a simplified interface for the CLI `chat` and `agent` commands
+    that was previously provided by the old AgentLoop class. It wraps the new
+    BehaviorScheduler/IOProcessor architecture to maintain backward compatibility.
+    """
+    def __init__(
+        self,
+        bus=None,
+        provider=None,
+        workspace=None,
+        model=None,
+        temperature=None,
+        max_tokens=None,
+        max_iterations=None,
+        memory_window=None,
+        reasoning_effort=None,
+        brave_api_key=None,
+        web_proxy=None,
+        exec_config=None,
+        cron_service=None,
+        restrict_to_workspace=None,
+        mcp_servers=None,
+        **kwargs
+    ):
+        import warnings
+        warnings.warn(
+            "AgentLoop is deprecated and has been renamed to IOProcessor in the new architecture. "
+            "This backward compatibility wrapper is only for CLI commands.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+        from crabclaw.config.loader import load_config
+        from crabclaw.sapiens.agent import AgentSapiens
+        from crabclaw.agent.scheduler import BehaviorScheduler
+        from crabclaw.bus.broadcaster import BroadcastManager
+
+        self._config = load_config()
+        self._bus = bus
+        self._provider = provider
+        self._workspace = workspace
+        self._scheduler = None
+        self._sapiens_core = None
+        self._running = False
+        self._mcp_servers = mcp_servers
+        self.messaging_config = getattr(self._config, 'messaging', None)
+
+        try:
+            self._sapiens_core = AgentSapiens(
+                agent_id="cli-agent",
+                personality_drives={},
+                name="CLI Agent",
+                llm_provider=provider,
+                workspace_path=workspace,
+                tool_registry=None,
+            )
+            self._scheduler = BehaviorScheduler(
+                self._config,
+                sapiens_core=self._sapiens_core,
+                enable_gateway=False,
+                enable_dashboard=False,
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize AgentLoop: {e}")
+            raise
+
+    async def run(self):
+        """Run the agent loop."""
+        if self._scheduler and not self._running:
+            self._running = True
+            try:
+                await self._scheduler.run()
+            except Exception as e:
+                logger.error(f"Error in AgentLoop run: {e}")
+                raise
+
+    def stop(self):
+        """Stop the agent loop."""
+        self._running = False
+        if self._scheduler:
+            try:
+                asyncio.create_task(self._scheduler.stop())
+            except Exception:
+                pass
+
+    async def process_direct(self, message: str, session_id: str, on_progress=None):
+        """
+        Process a message directly (single message mode).
+        This is a simplified implementation for CLI compatibility.
+        """
+        class SimpleResponse:
+            def __init__(self, content, source="cli"):
+                self.content = content
+                self.source = source
+
+        if not self._sapiens_core:
+            return SimpleResponse(content="[Error: Agent not initialized]", source="cli")
+
+        try:
+            response_content = ""
+
+            try:
+                action_provider = self._sapiens_core.llm_provider
+                if action_provider:
+                    messages = [
+                        {"role": "system", "content": "You are a helpful AI assistant."},
+                        {"role": "user", "content": message}
+                    ]
+                    response = await action_provider.chat(
+                        messages=messages,
+                        model=None,
+                        temperature=0.7,
+                        max_tokens=2048,
+                    )
+                    if response and response.content:
+                        response_content = response.content.strip()
+            except Exception as e:
+                logger.warning(f"Direct LLM call failed: {e}")
+                response_content = f"[Error generating response: {str(e)}]"
+
+            return SimpleResponse(content=response_content or "[No response]", source="cli")
+
+        except Exception as e:
+            logger.error(f"Error in process_direct: {e}", exc_info=True)
+            return SimpleResponse(content=f"[Error: {str(e)}]", source="cli")
+
+    async def close_mcp(self):
+        """Close MCP connections."""
+        if self._scheduler:
+            try:
+                if hasattr(self._scheduler, 'stop'):
+                    await self._scheduler.stop()
+            except Exception:
+                pass
