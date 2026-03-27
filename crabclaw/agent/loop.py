@@ -232,6 +232,8 @@ class IOProcessor:
                         "sender_id": msg.sender_id,
                         "channel": msg.channel,
                         "chat_id": msg.chat_id,
+                        "user_id": scope,
+                        "scope": scope,
                     },
                 )
 
@@ -364,6 +366,10 @@ class IOProcessor:
                 # 单通道订阅模式：只发送回 origin
                 if origin:
                     outbound_targets.append((origin[0], origin[1]))
+                else:
+                    # 如果没有 origin，尝试使用 source_channel 和 source_chat_id
+                    if source_channel and source_chat_id:
+                        outbound_targets.append((source_channel, source_chat_id))
             return outbound_targets
         if ":" in recipient and not recipient.startswith("did:"):
             ch, target_chat = recipient.split(":", 1)

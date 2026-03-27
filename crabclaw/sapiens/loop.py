@@ -166,7 +166,10 @@ class PersistentAgentLoop:
                             name="send_message",
                             params={
                                 "recipient": recipient,
-                                "content": response_text
+                                "content": response_text,
+                                "scope": action.params.get("scope"),
+                                "source_channel": action.params.get("source_channel"),
+                                "source_chat_id": action.params.get("source_chat_id"),
                             },
                             reason="Respond to message via slow path"
                         )

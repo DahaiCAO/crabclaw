@@ -938,8 +938,7 @@ class FeishuChannel(BaseChannel):
         """Send a message through Feishu, including media (images/files) if present."""
         if not self._client:
             logger.warning("Feishu client not initialized")
-            # Raise exception to indicate failure
-            raise Exception("Feishu client not initialized")
+            return
 
         try:
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"

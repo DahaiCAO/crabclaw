@@ -430,6 +430,19 @@ class BehaviorScheduler:
                 "timestamp": event["timestamp"],
             },
         )
+        
+        # 如果没有身份映射（scope 是 channel:chat_id 格式），广播给所有用户
+        if ":" in scope and not scope.startswith("did:") and self.user_manager:
+            try:
+                all_users = self.user_manager.list_users()
+                for user in all_users:
+                    user_id = user.get("user_id")
+                    if user_id:
+                        await self.broadcast_manager.publish(scope=user_id, message=event)
+            except Exception as e:
+                logger.warning("Failed to broadcast to all users: {}", e)
+        
+        # 总是发布到原始 scope
         await self.broadcast_manager.publish(scope=scope, message=event)
 
     async def _on_bus_outbound(self, msg) -> None:
