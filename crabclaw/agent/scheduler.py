@@ -160,6 +160,34 @@ class BehaviorScheduler:
             self.tool_registry.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tool_registry.register(CronTool(self.cron_service))
+        
+        # Register ClawSocial info tools (always register for connection management)
+        try:
+            from crabclaw.skills.clawsocial.scripts.info_tools import (
+                ClawSocialListConnectionsTool,
+                ClawSocialGetInfoTool,
+                ClawSocialConnectTool,
+                ClawSocialDisconnectTool
+            )
+            
+            # Always register connection management tools
+            self.tool_registry.register(ClawSocialListConnectionsTool())
+            self.tool_registry.register(ClawSocialGetInfoTool())
+            self.tool_registry.register(ClawSocialConnectTool())
+            self.tool_registry.register(ClawSocialDisconnectTool())
+            logger.info("ClawSocial connection management tools registered")
+            
+            # Register full ClawSocial tools only if enabled and have active connections
+            from crabclaw.skills.clawsocial import register_clawsocial_tools
+            from crabclaw.skills.clawsocial.scripts.config import config as clawsocial_config
+            
+            if clawsocial_config.clawsociety_enabled and clawsocial_config.enabled_connections:
+                register_clawsocial_tools(self.tool_registry)
+                logger.info("Full ClawSocial tools registered successfully")
+            else:
+                logger.info("ClawSocial not fully enabled, registering only connection management tools")
+        except Exception as e:
+            logger.warning(f"Failed to register ClawSocial tools: {e}")
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""

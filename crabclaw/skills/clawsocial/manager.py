@@ -17,6 +17,12 @@ from crabclaw.skills.clawsocial.scripts.group_admin import (
 from crabclaw.skills.clawsocial.scripts.contacts import (
     ContactsAddTool, ContactsRemoveTool, ContactsListTool
 )
+from .scripts.info_tools import (
+    ClawSocialListConnectionsTool,
+    ClawSocialGetInfoTool,
+    ClawSocialConnectTool,
+    ClawSocialDisconnectTool
+)
 
 if TYPE_CHECKING:
     from crabclaw.agent.tools.registry import ToolRegistry
@@ -27,6 +33,16 @@ logger = logging.getLogger(__name__)
 def register_clawsocial_tools(tool_registry: "ToolRegistry"):
     """Register all ClawSocial tools with the tool registry."""
     logger.info("Registering ClawSocial tools...")
+    
+    # Connection management tools
+    tool_registry.register(ClawSocialListConnectionsTool())
+    logger.info("  - Registered tool: clawsocial_list_connections")
+    tool_registry.register(ClawSocialGetInfoTool())
+    logger.info("  - Registered tool: clawsocial_get_info")
+    tool_registry.register(ClawSocialConnectTool())
+    logger.info("  - Registered tool: clawsocial_connect")
+    tool_registry.register(ClawSocialDisconnectTool())
+    logger.info("  - Registered tool: clawsocial_disconnect")
     
     # Registry tools
     tool_registry.register(RegistryTool())
