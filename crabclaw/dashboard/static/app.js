@@ -793,10 +793,11 @@ function initChannelMode() {
   }
 
   function saveFile() {
-    const fileName = document.getElementById('current-file-name').textContent;
+    const fileNameEl = document.getElementById('current-file-name');
+    const fileName = fileNameEl?.dataset.fullPath || fileNameEl?.textContent;
     const content = document.getElementById('file-content').value;
 
-    if (fileName !== 'Select a file') {
+    if (fileName && fileName !== 'Select a file') {
       if (window.ws && window.ws.readyState === WebSocket.OPEN) {
         window.ws.send(JSON.stringify({
           type: 'save_file',
@@ -3034,6 +3035,14 @@ function updateUIStrings() {
       }
     }
   });
+  
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.dataset.i18nPlaceholder;
+    const text = getTranslation(key);
+    if (text) {
+      el.placeholder = text;
+    }
+  });
 
   // Also update connection pill if it's currently showing a known state
   if (window.ws) {
@@ -3061,17 +3070,9 @@ function setLanguage(lang) {
   loadTranslations(lang);
 }
 
-// Settings real-time save
+// Settings real-time save (excluding basic profile fields)
 function initSettingsSync() {
   const syncElements = [
-    // Fields moved to Portrait
-    { id: 'pt-name', key: 'agent_name', type: 'input' },
-    { id: 'pt-nickname', key: 'nickname', type: 'input' },
-    { id: 'pt-gender', key: 'gender', type: 'change' },
-    { id: 'pt-age', key: 'age', type: 'input' },
-    { id: 'pt-height', key: 'height', type: 'input' },
-    { id: 'pt-weight', key: 'weight', type: 'input' },
-    { id: 'pt-hobbies', key: 'hobbies', type: 'input' },
     // Psychology sliders
     { id: 'pt-curiosity', key: 'psychology.curiosity', type: 'input' },
     { id: 'pt-confidence', key: 'psychology.confidence', type: 'input' },
@@ -3097,7 +3098,26 @@ function initSettingsSync() {
       }
     });
   });
-
+  
+  // Save profile button
+  const saveProfileBtn = document.getElementById('save-profile');
+  if (saveProfileBtn) {
+    saveProfileBtn.addEventListener('click', saveProfile);
+  }
+  
+  // Track dirty state for basic profile fields
+  window.profileDirty = false;
+  const profileFields = ['pt-id', 'pt-name', 'pt-nickname', 'pt-age', 'pt-gender', 'pt-height', 'pt-weight', 'pt-hobbies'];
+  profileFields.forEach(id => {
+    const el = qs(id);
+    if (el) {
+      el.addEventListener('input', () => { window.profileDirty = true; });
+      el.addEventListener('change', () => { window.profileDirty = true; });
+    }
+  });
+  
+  window.clearProfileDirty = () => { window.profileDirty = false; };
+  
   // Language radio sync
   document.querySelectorAll('input[name="language"]').forEach(radio => {
     radio.addEventListener('change', () => {
@@ -3113,6 +3133,48 @@ function initSettingsSync() {
       }
     });
   });
+}
+
+// Save basic profile to config and SOUL.md
+async function saveProfile() {
+  const profileData = {
+    agent_id: document.getElementById('pt-id')?.value || '',
+    agent_name: document.getElementById('pt-name')?.value || '',
+    nickname: document.getElementById('pt-nickname')?.value || '',
+    gender: document.getElementById('pt-gender')?.value || 'non-binary',
+    age: document.getElementById('pt-age')?.value ? parseInt(document.getElementById('pt-age').value) : null,
+    height: document.getElementById('pt-height')?.value ? parseInt(document.getElementById('pt-height').value) : null,
+    weight: document.getElementById('pt-weight')?.value ? parseInt(document.getElementById('pt-weight').value) : null,
+    hobbies: document.getElementById('pt-hobbies')?.value ? document.getElementById('pt-hobbies').value.split(',').map(h => h.trim()).filter(h => h) : []
+  };
+  
+  try {
+    const response = await fetch('/api/profile/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profileData)
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      showNotification(data.message, 'success');
+      if (window.clearProfileDirty) window.clearProfileDirty();
+      // 如果当前打开的是 SOUL.md，重新加载文件内容
+      const fileNameEl = document.getElementById('current-file-name');
+      const currentFileName = fileNameEl?.dataset.fullPath || fileNameEl?.textContent;
+      if ((currentFileName === 'SOUL.md' || currentFileName === 'nature/SOUL.md') && window.ws && window.ws.readyState === WebSocket.OPEN) {
+        window.ws.send(JSON.stringify({
+          type: 'get_file_content',
+          data: { file_name: 'nature/SOUL.md' }
+        }));
+      }
+    } else {
+      showNotification(data.error || '保存失败', 'error');
+    }
+  } catch (e) {
+    console.error('Failed to save profile:', e);
+    showNotification('保存失败', 'error');
+  }
 }
 
 // Initial setup
@@ -3133,16 +3195,33 @@ function safeUpdate(id, val, field = 'value') {
   else if (field === 'textContent') el.textContent = val;
 }
 
+function loadProfileFields(config) {
+  if (!config) return;
+  
+  const fields = [
+    { id: 'pt-name', value: config.agent_name || '' },
+    { id: 'pt-nickname', value: config.nickname || '' },
+    { id: 'pt-gender', value: config.gender || 'non-binary' },
+    { id: 'pt-age', value: config.age ? config.age.toString() : '' },
+    { id: 'pt-height', value: config.height ? config.height.toString() : '' },
+    { id: 'pt-weight', value: config.weight ? config.weight.toString() : '' },
+    { id: 'pt-hobbies', value: Array.isArray(config.hobbies) ? config.hobbies.join(', ') : '' }
+  ];
+  
+  fields.forEach(f => {
+    const el = qs(f.id);
+    if (el && document.activeElement !== el) {
+      el.value = f.value;
+    }
+  });
+}
+
 function renderSettings(config) {
   if (!config) return;
   
   // Note: agent_name, gender, hobbies are now primarily in Portrait
-  // but we still sync them if the Portrait section is loaded via internal_state.
-  // We can update them here too if needed for consistency.
-  safeUpdate('pt-name', config.agent_name || '');
-  safeUpdate('pt-nickname', config.nickname || '');
-  safeUpdate('pt-gender', config.gender || 'non-binary');
-  safeUpdate('pt-hobbies', (config.hobbies || []).join(', '));
+  // and are only updated when user clicks Save button
+  // Do not auto-sync them here to prevent overwriting user input
 
   safeUpdate('set-save-interval', config.save_interval || 60);
   safeUpdate('set-push-interval', config.state_push_interval || 1.0);
@@ -3363,20 +3442,48 @@ function renderPortrait(state) {
     if (valEl) valEl.textContent = val.toFixed(2);
   };
 
-  // 1. Basic Profile
-  safeUpdate("pt-id", state.agent_id || "");
-  const displayName = state.agent_name || "Crabclaw";
-  safeUpdate("pt-name", displayName);
-  safeUpdate("pt-nickname", state.nickname || "");
-  safeUpdate("pt-age", (state.age || 0).toFixed(1));
-  
-  if (qs("pt-gender") && document.activeElement !== qs("pt-gender")) {
-    qs("pt-gender").value = state.gender || "non-binary";
+  // 1. Basic Profile - 只在用户不在编辑且没有未保存的修改时才更新
+  // 如果用户修改了值但还没保存，就不要用服务端的状态覆盖
+  const ptId = qs("pt-id");
+  if (ptId && document.activeElement !== ptId && !window.profileDirty) {
+    ptId.value = state.agent_id || "";
   }
   
-  safeUpdate("pt-height", state.height || 175);
-  safeUpdate("pt-weight", state.weight || 70);
-  safeUpdate("pt-hobbies", (state.hobbies || []).join(", "));
+  const ptName = qs("pt-name");
+  const displayName = state.agent_name || "Crabclaw";
+  if (ptName && document.activeElement !== ptName && !window.profileDirty) {
+    ptName.value = displayName;
+  }
+  
+  const ptNickname = qs("pt-nickname");
+  if (ptNickname && document.activeElement !== ptNickname && !window.profileDirty) {
+    ptNickname.value = state.nickname || "";
+  }
+  
+  const ptAge = qs("pt-age");
+  if (ptAge && document.activeElement !== ptAge && !window.profileDirty) {
+    ptAge.value = (state.age || 0).toFixed(1);
+  }
+  
+  const ptGender = qs("pt-gender");
+  if (ptGender && document.activeElement !== ptGender && !window.profileDirty) {
+    ptGender.value = state.gender || "non-binary";
+  }
+  
+  const ptHeight = qs("pt-height");
+  if (ptHeight && document.activeElement !== ptHeight && !window.profileDirty) {
+    ptHeight.value = state.height || 175;
+  }
+  
+  const ptWeight = qs("pt-weight");
+  if (ptWeight && document.activeElement !== ptWeight && !window.profileDirty) {
+    ptWeight.value = state.weight || 70;
+  }
+  
+  const ptHobbies = qs("pt-hobbies");
+  if (ptHobbies && document.activeElement !== ptHobbies && !window.profileDirty) {
+    ptHobbies.value = (state.hobbies || []).join(", ");
+  }
 
   // 2. Psychology & Emotion
   const emotion = state.psychology?.emotion || {};
@@ -3455,7 +3562,10 @@ function openCoreFileEditor(fileRel){
   const menuItem = document.querySelector('.menu-item[data-section="core-files"]');
   if (menuItem) menuItem.click();
   const currentFileName = document.getElementById("current-file-name");
-  if (currentFileName) currentFileName.textContent = fileRel;
+  if (currentFileName) {
+    currentFileName.dataset.fullPath = fileRel;
+    currentFileName.textContent = fileRel.split('/').pop();
+  }
   if (window.ws && window.ws.readyState === WebSocket.OPEN){
     window.ws.send(JSON.stringify({ type: "get_files" }));
     window.ws.send(JSON.stringify({
@@ -3944,6 +4054,7 @@ function connect(){
       latestConfig = data;
       renderConfig(data);
       renderSettings(data);
+      loadProfileFields(data);
       return;
     }
 
@@ -3971,6 +4082,7 @@ function connect(){
       }
       if (latestConfig) {
         renderSettings(latestConfig);
+        loadProfileFields(latestConfig);
       }
       if (latestConfig && latestConfig.providers) {
         if (Array.isArray(latestConfig.providers)) {
@@ -4014,6 +4126,8 @@ function connect(){
       const fileNameEl = document.getElementById("current-file-name");
       const filePathEl = document.getElementById("current-file-path");
       if (fileNameEl) {
+        // Store full path in dataset
+        fileNameEl.dataset.fullPath = data.file_name;
         // Show only filename without prefix
         fileNameEl.textContent = data.file_name.split('/').pop();
       }
@@ -4028,6 +4142,18 @@ function connect(){
     if (type === "file_saved"){
       if (data.success) {
         showNotification("已保存", "success");
+        // 保存成功后，自动重新加载当前打开的文件
+        const fileNameEl = document.getElementById('current-file-name');
+        const currentFileName = fileNameEl?.dataset.fullPath || fileNameEl?.textContent;
+        if (currentFileName && currentFileName !== 'Select a file') {
+          const fullFileName = data.data?.file_name || currentFileName;
+          if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+            window.ws.send(JSON.stringify({
+              type: 'get_file_content',
+              data: { file_name: fullFileName }
+            }));
+          }
+        }
       } else {
         showNotification("保存失败", "error");
       }

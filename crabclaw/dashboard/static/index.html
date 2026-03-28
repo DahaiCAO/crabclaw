@@ -139,7 +139,10 @@
           <div class="portrait-container">
             <!-- Profile Section -->
             <div class="card profile-card">
-              <div class="card-title" data-i18n="portrait.basic">Basic Profile</div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="card-title" data-i18n="portrait.basic">Basic Profile</div>
+                <button id="save-profile" class="btn" data-i18n="core_files.save">保存</button>
+              </div>
               <div class="profile-grid">
                 <div class="form-group">
                   <label data-i18n="portrait.id">Agent ID</label>
@@ -147,11 +150,11 @@
                 </div>
                 <div class="form-group">
                   <label data-i18n="portrait.name">Name</label>
-                  <input type="text" id="pt-name" placeholder="Crabclaw-001" />
+                  <input type="text" id="pt-name" data-i18n-placeholder="portrait.name_placeholder" placeholder="Crabclaw-001" />
                 </div>
                 <div class="form-group">
                   <label data-i18n="portrait.nickname">Nickname</label>
-                  <input type="text" id="pt-nickname" placeholder="e.g. Claw" />
+                  <input type="text" id="pt-nickname" data-i18n-placeholder="portrait.nickname_placeholder" placeholder="e.g. Claw" />
                 </div>
                 <div class="form-group">
                   <label data-i18n="portrait.age">Age</label>

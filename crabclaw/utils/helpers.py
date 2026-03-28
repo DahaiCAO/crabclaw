@@ -129,11 +129,10 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
             continue
         section = parts[0]
         if section == "prompts":
-            _write(item, workspace / "prompts" / rel.name)
             continue
         if section == "memory":
             if rel.name == "MEMORY.md":
-                _write(item, workspace / "memory" / "MEMORY.md")
+                continue
             continue
         if section in {"nature", "social"}:
             _write(item, workspace / section / rel.name)
@@ -146,7 +145,6 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     global_dirs = [
         "skills",
         "cron",
-        "history",
         "memory",
         "sessions",
         "identities",

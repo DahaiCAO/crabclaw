@@ -256,7 +256,6 @@ class UserManager:
         
         # Core scaffold directories
         dirs_to_create = [
-            "history",
             "memory",
             "channels",
             "channels/email",

@@ -134,6 +134,8 @@ class DashboardServer:
                         parent._handle_save_web_search(self, body)
                     elif self.path == '/api/config/mcp-servers':
                         parent._handle_save_mcp_servers(self, body)
+                    elif self.path == '/api/profile/save':
+                        parent._handle_save_profile(self, body)
                     else:
                         self.send_response(404)
                         self.end_headers()
@@ -1242,7 +1244,7 @@ class DashboardServer:
             files = []
 
             # Directories to scan for md and py files
-            dirs_to_scan = ["prompts", "memory", "social", "nature", "crabclaw"]
+            dirs_to_scan = ["social", "nature", "crabclaw"]
 
             for dir_name in dirs_to_scan:
                 dir_path = workspace / dir_name
@@ -1289,26 +1291,38 @@ class DashboardServer:
                 return ""
 
             workspace = Path(workspace_path)
+            logger.debug(f"Reading file: {file_name} from workspace: {workspace}")
 
             # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
             if "/" in file_name:
                 file_path = workspace / file_name
+                logger.debug(f"Trying path with prefix: {file_path}, exists: {file_path.exists()}")
                 if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
-                    return file_path.read_text(encoding="utf-8")
+                    content = file_path.read_text(encoding="utf-8")
+                    logger.debug(f"Read {len(content)} chars from {file_path}")
+                    return content
 
             # Try to find file in known directories
             for dir_name in ["prompts", "memory", "social", "nature"]:
                 file_path = workspace / dir_name / file_name
+                logger.debug(f"Trying in {dir_name}: {file_path}, exists: {file_path.exists()}")
                 if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
-                    return file_path.read_text(encoding="utf-8")
+                    content = file_path.read_text(encoding="utf-8")
+                    logger.debug(f"Read {len(content)} chars from {file_path}")
+                    return content
 
             # Then try workspace root
             file_path = workspace / file_name
+            logger.debug(f"Trying in root: {file_path}, exists: {file_path.exists()}")
             if file_path.exists() and file_path.suffix in [".md", ".py", ".txt", ".json"]:
-                return file_path.read_text(encoding="utf-8")
+                content = file_path.read_text(encoding="utf-8")
+                logger.debug(f"Read {len(content)} chars from {file_path}")
+                return content
 
+            logger.warning(f"File not found: {file_name}")
             return ""
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error reading file {file_name}: {e}", exc_info=True)
             return ""
 
     def _save_file(self, file_name: str, content: str) -> bool:
@@ -1319,31 +1333,50 @@ class DashboardServer:
                 return False
 
             workspace = Path(workspace_path)
+            logger.debug(f"Saving file: {file_name}, content length: {len(content)} to workspace: {workspace}")
 
             # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
             if "/" in file_name:
                 file_path = workspace / file_name
+                logger.debug(f"Trying to save with prefix: {file_path}")
                 if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(content, encoding="utf-8")
+                    logger.debug(f"Saved {len(content)} chars to {file_path}")
                     return True
 
-            # Try to save in known directories
-            for dir_name in ["prompts", "memory", "social", "nature"]:
+            # First, check if file exists in any known directory - if yes, save there
+            for dir_name in ["nature", "social", "memory", "prompts"]:
                 file_path = workspace / dir_name / file_name
+                if file_path.exists():
+                    logger.debug(f"File exists in {dir_name}, saving there: {file_path}")
+                    if file_path.suffix in [".md", ".py", ".txt", ".json"]:
+                        file_path.write_text(content, encoding="utf-8")
+                        logger.debug(f"Saved {len(content)} chars to {file_path}")
+                        return True
+
+            # If file doesn't exist anywhere, save to nature directory (default for prompt files)
+            for dir_name in ["nature", "social", "memory", "prompts"]:
+                file_path = workspace / dir_name / file_name
+                logger.debug(f"Trying to save in {dir_name}: {file_path}")
                 if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(content, encoding="utf-8")
+                    logger.debug(f"Saved {len(content)} chars to {file_path}")
                     return True
 
             # Then try workspace root
             file_path = workspace / file_name
+            logger.debug(f"Trying to save in root: {file_path}")
             if file_path.suffix in [".md", ".py", ".txt", ".json"]:
                 file_path.write_text(content, encoding="utf-8")
+                logger.debug(f"Saved {len(content)} chars to {file_path}")
                 return True
 
+            logger.warning(f"Failed to save file: {file_name}")
             return False
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error saving file {file_name}: {e}", exc_info=True)
             return False
 
     def _get_chat_history(self, user_id: str | None = None) -> list:
@@ -1476,16 +1509,8 @@ class DashboardServer:
     def _handle_get_tools(self, handler):
         """获取可用工具列表"""
         try:
-            from crabclaw.agent.tools.registry import get_tools
-            
-            tools = get_tools()
+            # 暂时返回空的工具列表
             tool_list = []
-            for name, tool in tools.items():
-                tool_list.append({
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters
-                })
             
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/json')
@@ -1509,6 +1534,13 @@ class DashboardServer:
             handler.send_header('Content-Type', 'application/json')
             handler.end_headers()
             handler.wfile.write(json.dumps({
+                "agent_name": config.agent_name,
+                "nickname": config.nickname,
+                "gender": config.gender,
+                "age": config.age,
+                "height": config.height,
+                "weight": config.weight,
+                "hobbies": config.hobbies or [],
                 "tools": {
                     "web": {
                         "search": {
@@ -1557,6 +1589,88 @@ class DashboardServer:
             handler.wfile.write(json.dumps({"success": True, "message": "Web 搜索配置保存成功"}, ensure_ascii=False).encode('utf-8'))
         except Exception as e:
             logger.error(f"Failed to save web search config: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_save_profile(self, handler, body):
+        """保存基本画像信息到 config.json 和 SOUL.md"""
+        try:
+            from crabclaw.config.loader import load_config, save_config
+            from pathlib import Path
+            
+            config = load_config()
+            
+            # 保存到 config.json
+            if "agent_name" in body:
+                config.agent_name = body["agent_name"]
+            if "nickname" in body:
+                config.nickname = body["nickname"]
+            if "gender" in body:
+                config.gender = body["gender"]
+            if "age" in body:
+                config.age = body["age"]
+            if "height" in body:
+                config.height = body["height"]
+            if "weight" in body:
+                config.weight = body["weight"]
+            if "hobbies" in body:
+                config.hobbies = body["hobbies"]
+            
+            save_config(config)
+            
+            # 保存到 SOUL.md 的头部
+            workspace_path = Path(config.workspace_path).expanduser().resolve()
+            soul_md_path = workspace_path / "nature" / "SOUL.md"
+            
+            # 如果 workspace 中没有 SOUL.md，使用模板
+            if not soul_md_path.exists():
+                template_path = Path(__file__).parent.parent / "templates" / "nature" / "SOUL.md"
+                if template_path.exists():
+                    soul_md_path.parent.mkdir(parents=True, exist_ok=True)
+                    soul_md_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+            
+            if soul_md_path.exists():
+                content = soul_md_path.read_text(encoding="utf-8")
+                
+                # 构建身份信息头部
+                identity_header = "# Identity Profile\n\n"
+                if body.get("agent_id"):
+                    identity_header += f"- **Agent ID**: {body['agent_id']}\n"
+                if body.get("agent_name"):
+                    identity_header += f"- **Name**: {body['agent_name']}\n"
+                if body.get("nickname"):
+                    identity_header += f"- **Nickname**: {body['nickname']}\n"
+                if body.get("gender"):
+                    identity_header += f"- **Gender**: {body['gender']}\n"
+                if body.get("age"):
+                    identity_header += f"- **Age**: {body['age']}\n"
+                if body.get("height"):
+                    identity_header += f"- **Height**: {body['height']} cm\n"
+                if body.get("weight"):
+                    identity_header += f"- **Weight**: {body['weight']} kg\n"
+                if body.get("hobbies"):
+                    identity_header += f"- **Hobbies**: {', '.join(body['hobbies'])}\n"
+                identity_header += "\n"
+                
+                # 检查是否已有身份信息头部
+                if "# Identity Profile" in content:
+                    # 替换现有头部
+                    import re
+                    content = re.sub(r"# Identity Profile[\s\S]*?\n(?=#|\Z)", identity_header, content)
+                else:
+                    # 在文件开头添加头部
+                    content = identity_header + content
+                
+                soul_md_path.write_text(content, encoding="utf-8")
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": True, "message": "基本画像保存成功"}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to save profile: {e}")
             handler.send_response(500)
             handler.send_header('Content-Type', 'application/json')
             handler.end_headers()
