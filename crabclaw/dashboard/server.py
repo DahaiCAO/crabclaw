@@ -126,6 +126,14 @@ class DashboardServer:
                         parent._handle_logout(self)
                     elif self.path == '/api/delete-account':
                         parent._handle_delete_account(self, body)
+                    elif self.path == '/api/tools':
+                        parent._handle_get_tools(self)
+                    elif self.path == '/api/config':
+                        parent._handle_get_config(self)
+                    elif self.path == '/api/config/web-search':
+                        parent._handle_save_web_search(self, body)
+                    elif self.path == '/api/config/mcp-servers':
+                        parent._handle_save_mcp_servers(self, body)
                     else:
                         self.send_response(404)
                         self.end_headers()
@@ -1464,3 +1472,127 @@ class DashboardServer:
             with contextlib.suppress(BaseException):
                 self._http_thread.join(timeout=2.0)
             self._http_thread = None
+
+    def _handle_get_tools(self, handler):
+        """获取可用工具列表"""
+        try:
+            from crabclaw.agent.tools.registry import get_tools
+            
+            tools = get_tools()
+            tool_list = []
+            for name, tool in tools.items():
+                tool_list.append({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                })
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"tools": tool_list}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to get tools: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_get_config(self, handler):
+        """获取当前配置"""
+        try:
+            from crabclaw.config.loader import load_config
+            
+            config = load_config()
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({
+                "tools": {
+                    "web": {
+                        "search": {
+                            "api_key": config.tools.web.search.api_key,
+                            "max_results": config.tools.web.search.max_results
+                        },
+                        "proxy": config.tools.web.proxy
+                    },
+                    "mcp_servers": {
+                        name: {
+                            "command": server.command,
+                            "args": server.args,
+                            "env": server.env,
+                            "url": server.url,
+                            "headers": server.headers,
+                            "tool_timeout": server.tool_timeout
+                        }
+                        for name, server in config.tools.mcp_servers.items()
+                    }
+                }
+            }, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to get config: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_save_web_search(self, handler, body):
+        """保存 Web 搜索配置"""
+        try:
+            from crabclaw.config.loader import load_config, save_config
+            
+            config = load_config()
+            
+            if "api_key" in body:
+                config.tools.web.search.api_key = body["api_key"]
+            if "proxy" in body:
+                config.tools.web.proxy = body["proxy"] if body["proxy"] else None
+            
+            save_config(config)
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": True, "message": "Web 搜索配置保存成功"}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to save web search config: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_save_mcp_servers(self, handler, body):
+        """保存 MCP 服务器配置"""
+        try:
+            from crabclaw.config.loader import load_config, save_config
+            from crabclaw.config.schema import MCPServerConfig
+            
+            config = load_config()
+            
+            servers = body.get("servers", {})
+            config.tools.mcp_servers = {}
+            
+            for name, server_config in servers.items():
+                mcp_server = MCPServerConfig(
+                    command=server_config.get("command", ""),
+                    args=server_config.get("args", []),
+                    env=server_config.get("env", {}),
+                    url=server_config.get("url", ""),
+                    headers=server_config.get("headers", {}),
+                    tool_timeout=server_config.get("tool_timeout", 30)
+                )
+                config.tools.mcp_servers[name] = mcp_server
+            
+            save_config(config)
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": True, "message": "MCP 服务器配置保存成功"}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to save MCP servers config: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))

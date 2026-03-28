@@ -883,6 +883,8 @@ menuItems.forEach(item => {
       requestPromptEvolutionStatus();
     } else if (sectionId === 'skills') {
       loadSkills();
+      loadToolKit();
+      loadToolConfig();
     } else if (sectionId === 'channels') {
       loadChannels();
     } else if (sectionId === 'users') {
@@ -957,6 +959,298 @@ function loadUsers() {
     window.ws.send(JSON.stringify({ type: 'get_users' }));
   } else {
     usersList.innerHTML = '<div class="user-item"><span class="user-status error"></span><span class="user-info">WebSocket not connected</span></div>';
+  }
+}
+
+async function loadToolKit() {
+  const toolKitList = document.getElementById('tool-kit-list');
+  if (!toolKitList) return;
+  
+  try {
+    const response = await fetch('/api/tools', { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.tools && data.tools.length > 0) {
+      toolKitList.innerHTML = '';
+      data.tools.forEach(tool => {
+        const toolItem = document.createElement('div');
+        toolItem.className = 'skill-item';
+        
+        const toolIcon = document.createElement('div');
+        toolIcon.className = 'skill-icon';
+        toolIcon.textContent = '🔧';
+        
+        const toolInfo = document.createElement('div');
+        toolInfo.className = 'skill-info';
+        
+        const toolName = document.createElement('div');
+        toolName.className = 'skill-name';
+        toolName.textContent = tool.name;
+        
+        const toolDesc = document.createElement('div');
+        toolDesc.className = 'skill-description';
+        toolDesc.textContent = tool.description;
+        
+        toolInfo.appendChild(toolName);
+        toolInfo.appendChild(toolDesc);
+        toolItem.appendChild(toolIcon);
+        toolItem.appendChild(toolInfo);
+        toolKitList.appendChild(toolItem);
+      });
+    } else {
+      toolKitList.innerHTML = '<div class="skill-item empty"><div class="skill-info"><div class="skill-name">' + (getTranslation('skills.no_tools') || '没有找到工具') + '</div></div></div>';
+    }
+  } catch (e) {
+    console.error('Failed to load tool kit:', e);
+    toolKitList.innerHTML = '<div class="skill-item empty"><div class="skill-info"><div class="skill-name">' + (getTranslation('skills.loading_tools_failed') || '加载工具失败') + '</div></div></div>';
+  }
+}
+
+async function loadToolConfig() {
+  try {
+    const response = await fetch('/api/config', { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.tools) {
+      const webSearchEnabled = document.getElementById('web-search-enabled');
+      const braveApiKey = document.getElementById('brave-api-key');
+      const webSearchProxy = document.getElementById('web-search-proxy');
+      
+      if (webSearchEnabled && data.tools.web && data.tools.web.search && data.tools.web.search.api_key) {
+        webSearchEnabled.checked = !!data.tools.web.search.api_key;
+      }
+      if (braveApiKey && data.tools.web && data.tools.web.search) {
+        braveApiKey.value = data.tools.web.search.api_key || '';
+      }
+      if (webSearchProxy && data.tools.web) {
+        webSearchProxy.value = data.tools.web.proxy || '';
+      }
+      
+      if (data.tools.mcp_servers) {
+        renderMCPServers(data.tools.mcp_servers);
+        currentMCPServers = data.tools.mcp_servers;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load config:', e);
+  }
+}
+
+function renderMCPServers(servers) {
+  const mcpServersList = document.getElementById('mcp-servers-list');
+  if (!mcpServersList) return;
+  
+  mcpServersList.innerHTML = '';
+  
+  const serverNames = Object.keys(servers);
+  if (serverNames.length === 0) {
+    mcpServersList.innerHTML = '<div class="skill-item empty"><div class="skill-info"><div class="skill-name">' + (getTranslation('skills.no_mcp_servers') || '没有配置 MCP 服务器') + '</div></div></div>';
+    return;
+  }
+  
+  serverNames.forEach(name => {
+    const server = servers[name];
+    const serverItem = document.createElement('div');
+    serverItem.className = 'skill-item';
+    
+    const serverIcon = document.createElement('div');
+    serverIcon.className = 'skill-icon';
+    serverIcon.textContent = '🖥️';
+    
+    const serverInfo = document.createElement('div');
+    serverInfo.className = 'skill-info';
+    
+    const serverName = document.createElement('div');
+    serverName.className = 'skill-name';
+    serverName.textContent = name;
+    
+    const serverDesc = document.createElement('div');
+    serverDesc.className = 'skill-description';
+    if (server.command) {
+      serverDesc.textContent = `${server.command} ${(server.args || []).join(' ')}`;
+    } else if (server.url) {
+      serverDesc.textContent = server.url;
+    }
+    
+    const serverActions = document.createElement('div');
+    serverActions.className = 'skill-actions';
+    
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn small';
+    editBtn.textContent = getTranslation('skills.edit') || '编辑';
+    editBtn.onclick = () => editMCPServer(name, server);
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn small danger';
+    deleteBtn.textContent = getTranslation('skills.delete') || '删除';
+    deleteBtn.onclick = () => deleteMCPServer(name);
+    
+    serverActions.appendChild(editBtn);
+    serverActions.appendChild(deleteBtn);
+    
+    serverInfo.appendChild(serverName);
+    serverInfo.appendChild(serverDesc);
+    serverItem.appendChild(serverIcon);
+    serverItem.appendChild(serverInfo);
+    serverItem.appendChild(serverActions);
+    mcpServersList.appendChild(serverItem);
+  });
+}
+
+let currentMCPServers = {};
+
+function editMCPServer(name, server) {
+  showMCPServerModal(name, server);
+}
+
+function deleteMCPServer(name) {
+  if (confirm((currentLang === 'en' ? `Are you sure you want to delete MCP server "${name}"?` : `确定要删除 MCP 服务器 "${name}" 吗？`))) {
+    delete currentMCPServers[name];
+    saveMCPServers();
+  }
+}
+
+function showMCPServerModal(name = null, server = null) {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div class="modal-title">${name ? (getTranslation('skills.edit_mcp_server') || '编辑 MCP 服务器') : (getTranslation('skills.add_mcp_server') || '添加 MCP 服务器')}</div>
+        <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>${getTranslation('skills.server_name') || '服务器名称'}</label>
+          <input type="text" id="mcp-server-name" value="${name || ''}" placeholder="${getTranslation('skills.server_name_placeholder') || '输入服务器名称'}">
+        </div>
+        <div class="form-group">
+          <label>${getTranslation('skills.connection_type') || '连接类型'}</label>
+          <select id="mcp-connection-type">
+            <option value="stdio" ${!server || server.command ? 'selected' : ''}>Stdio</option>
+            <option value="http" ${server && server.url ? 'selected' : ''}>HTTP</option>
+          </select>
+        </div>
+        <div id="mcp-stio-config">
+          <div class="form-group">
+            <label>${getTranslation('skills.command') || '命令'}</label>
+            <input type="text" id="mcp-command" value="${server?.command || 'npx'}" placeholder="${getTranslation('skills.command_placeholder') || '例如：npx'}">
+          </div>
+          <div class="form-group">
+            <label>${getTranslation('skills.args') || '参数'}</label>
+            <input type="text" id="mcp-args" value="${(server?.args || []).join(' ')}" placeholder="${getTranslation('skills.args_placeholder') || '参数，用空格分隔'}">
+          </div>
+        </div>
+        <div id="mcp-http-config" style="display: none;">
+          <div class="form-group">
+            <label>${getTranslation('skills.url') || 'URL'}</label>
+            <input type="text" id="mcp-url" value="${server?.url || ''}" placeholder="${getTranslation('skills.url_placeholder') || '例如：http://localhost:3000'}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>${getTranslation('skills.tool_timeout') || '工具超时（秒）'}</label>
+          <input type="number" id="mcp-timeout" value="${server?.tool_timeout || 30}" min="1">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button onclick="this.closest('.modal').remove()">${getTranslation('skills.cancel') || '取消'}</button>
+        <button id="save-mcp-server-btn">${getTranslation('skills.save') || '保存'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  const connectionType = modal.querySelector('#mcp-connection-type');
+  const stdioConfig = modal.querySelector('#mcp-stio-config');
+  const httpConfig = modal.querySelector('#mcp-http-config');
+  
+  connectionType.onchange = () => {
+    if (connectionType.value === 'stdio') {
+      stdioConfig.style.display = 'block';
+      httpConfig.style.display = 'none';
+    } else {
+      stdioConfig.style.display = 'none';
+      httpConfig.style.display = 'block';
+    }
+  };
+  
+  modal.querySelector('#save-mcp-server-btn').onclick = () => {
+    const newName = modal.querySelector('#mcp-server-name').value.trim();
+    if (!newName) {
+      showNotification(getTranslation('skills.please_enter_server_name') || '请输入服务器名称', 'error');
+      return;
+    }
+    
+    const type = connectionType.value;
+    const timeout = parseInt(modal.querySelector('#mcp-timeout').value) || 30;
+    
+    const newServer = {
+      tool_timeout: timeout
+    };
+    
+    if (type === 'stdio') {
+      newServer.command = modal.querySelector('#mcp-command').value.trim();
+      newServer.args = modal.querySelector('#mcp-args').value.trim().split(/\s+/).filter(Boolean);
+      newServer.env = {};
+    } else {
+      newServer.url = modal.querySelector('#mcp-url').value.trim();
+      newServer.headers = {};
+    }
+    
+    if (name && name !== newName) {
+      delete currentMCPServers[name];
+    }
+    
+    currentMCPServers[newName] = newServer;
+    modal.remove();
+    saveMCPServers();
+  };
+}
+
+async function saveMCPServers() {
+  try {
+    const response = await fetch('/api/config/mcp-servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ servers: currentMCPServers })
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      showNotification(data.message, 'success');
+      renderMCPServers(currentMCPServers);
+    } else {
+      showNotification(data.error || (getTranslation('skills.save_failed') || '保存失败'), 'error');
+    }
+  } catch (e) {
+    console.error('Failed to save MCP servers:', e);
+    showNotification(getTranslation('skills.save_failed') || '保存失败', 'error');
+  }
+}
+
+async function saveWebSearch() {
+  const braveApiKey = document.getElementById('brave-api-key');
+  const webSearchProxy = document.getElementById('web-search-proxy');
+  
+  try {
+    const response = await fetch('/api/config/web-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: braveApiKey?.value || '',
+        proxy: webSearchProxy?.value || ''
+      })
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      showNotification(data.message, 'success');
+    } else {
+      showNotification(data.error || (getTranslation('skills.save_failed') || '保存失败'), 'error');
+    }
+  } catch (e) {
+    console.error('Failed to save web search config:', e);
+    showNotification(getTranslation('skills.save_failed') || '保存失败', 'error');
   }
 }
 
@@ -1049,6 +1343,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const skillsFilterInput = document.getElementById('skills-filter-input');
   if (skillsFilterInput) {
     skillsFilterInput.addEventListener('input', filterSkills);
+  }
+  
+  // Web search save button
+  const saveWebSearchBtn = document.getElementById('save-web-search');
+  if (saveWebSearchBtn) {
+    saveWebSearchBtn.addEventListener('click', saveWebSearch);
+  }
+  
+  // Add MCP server button
+  const addMCPServerBtn = document.getElementById('add-mcp-server');
+  if (addMCPServerBtn) {
+    addMCPServerBtn.addEventListener('click', () => showMCPServerModal());
   }
 });
 
@@ -2735,6 +3041,10 @@ function updateUIStrings() {
     else if (window.ws.readyState === WebSocket.CONNECTING) setConn(false, "menu.ws_connecting");
     else setConn(false, "menu.ws_disconnected");
   }
+  
+  // Re-render tool kit and MCP servers to update their UI strings
+  loadToolKit();
+  renderMCPServers(currentMCPServers);
 }
 
 function setLanguage(lang) {

@@ -394,7 +394,8 @@ body[data-theme="light"] {
 }
 
 .modal-panel{
-  width:min(1100px,92vw);
+  width:min(auto,92vw);
+  min-width:min(auto,92vw);
   max-height:88vh;
   overflow:auto;
   border:1px solid var(--border);
@@ -1558,7 +1559,7 @@ button:hover{border-color: rgba(125,211,252,.45)}
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .skills-container {
@@ -1566,8 +1567,6 @@ button:hover{border-color: rgba(125,211,252,.45)}
   flex-direction: column;
   gap: 24px;
   padding: 10px;
-  overflow-y: auto;
-  height: calc(100vh - 160px);
 }
 
 .skills-description {
@@ -1746,6 +1745,33 @@ input:checked + .slider-round {
 
 input:checked + .slider-round:before {
   transform: translateX(20px);
+}
+
+.skills-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 24px 0;
+}
+
+.skill-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.btn.small {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.btn.danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--bad);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.btn.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 
 @media (max-width: 1200px) {

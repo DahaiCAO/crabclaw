@@ -662,6 +662,58 @@
 
         <section class="content-section" id="section-skills">
           <div class="card skills-card">
+            <!-- 工具箱 (Tool kit) -->
+            <div class="skills-section">
+              <h3 class="skills-section-title">工具箱 (Tool kit)</h3>
+              <div id="tool-kit-list" class="skills-list">
+                <!-- Tools will be populated by JavaScript -->
+              </div>
+            </div>
+            
+            <div class="skills-divider"></div>
+            
+            <!-- MCP 服务器 (MCP Server) -->
+            <div class="skills-section">
+              <h3 class="skills-section-title">MCP 服务器 (MCP Server)</h3>
+              <div class="toolbar">
+                <div class="left">
+                  <button id="add-mcp-server" data-i18n="skills.add_mcp_server">添加 MCP 服务器</button>
+                </div>
+              </div>
+              <div id="mcp-servers-list" class="skills-list">
+                <!-- MCP servers will be populated by JavaScript -->
+              </div>
+            </div>
+            
+            <div class="skills-divider"></div>
+            
+            <!-- Web搜索 (Web Search) -->
+            <div class="skills-section">
+              <h3 class="skills-section-title" data-i18n="skills.web_search">Web搜索 (Web Search)</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="skills.enable_web_search">是否启用网页搜索</label>
+                  <label class="switch">
+                    <input type="checkbox" id="web-search-enabled">
+                    <span class="slider-round"></span>
+                  </label>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="skills.brave_api_key">Brave Search API 密钥</label>
+                  <input type="password" id="brave-api-key" data-i18n="skills.brave_api_key_placeholder" placeholder="输入 Brave Search API 密钥">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="skills.proxy_address">代理地址 (可选)</label>
+                  <input type="text" id="web-search-proxy" data-i18n="skills.proxy_placeholder" placeholder="输入代理地址，如 http://127.0.0.1:7890">
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <button id="save-web-search" class="btn" data-i18n="skills.save_and_test">保存并测试</button>
+                </div>
+              </div>
+            </div>
+            
+            <div class="skills-divider"></div>
+            
             <div class="card-title" data-i18n="skills.title">Skills</div>
             <div class="skills-description" data-i18n="skills.description">Manage skill availability and API key injection.</div>
             
@@ -669,6 +721,8 @@
               <label data-i18n="skills.filter">Filter</label>
               <input type="text" id="skills-filter-input" data-i18n="skills.search_placeholder" placeholder="Search skills..." />
             </div>
+            
+            <div class="skills-divider"></div>
             
             <div class="skills-container">
               <div class="skills-section">
