@@ -53,10 +53,32 @@ class IOProcessor:
         try:
             from crabclaw.config.loader import load_config
             config = load_config()
-            self._clawlink_enabled = getattr(config, "clawsociety_enabled", False)
-            self._discovery_url = getattr(config, "clawsocial_url", "http://127.0.0.1:8000")
+            
+            # 优先使用新的 clawsocial_connections 配置（支持多个连接）
+            clawsocial_connections = getattr(config, "clawsocial_connections", {})
+            self._clawsocial_connections = clawsocial_connections
+            
+            # clawsociety_enabled 作为总开关
+            global_enabled = getattr(config, "clawsociety_enabled", False)
+            
+            if not global_enabled:
+                # 总开关关闭，不使用任何社交连接
+                self._clawlink_enabled = False
+                self._discovery_url = "http://127.0.0.1:8000"
+            else:
+                # 总开关打开，查找第一个启用的连接
+                self._clawlink_enabled = False
+                self._discovery_url = getattr(config, "clawsocial_url", "http://127.0.0.1:8000")
+                
+                for conn_id, conn in clawsocial_connections.items():
+                    if conn.get("enabled", False):
+                        self._clawlink_enabled = True
+                        self._discovery_url = conn.get("url", self._discovery_url)
+                        break
+            
             self._channel_mode = getattr(config, "channel_mode", "multi")
         except Exception:
+            self._clawsocial_connections = {}
             self._clawlink_enabled = False
             self._discovery_url = "http://127.0.0.1:8000"
             self._workspace = None

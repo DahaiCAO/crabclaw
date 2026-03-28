@@ -134,6 +134,10 @@ class DashboardServer:
                         parent._handle_save_web_search(self, body)
                     elif self.path == '/api/config/mcp-servers':
                         parent._handle_save_mcp_servers(self, body)
+                    elif self.path == '/api/config/clawsocial-connections':
+                        parent._handle_save_clawsocial_connections(self, body)
+                    elif self.path == '/api/config/clawsocial-connection/test':
+                        parent._handle_test_clawsocial_connection(self, body)
                     elif self.path == '/api/profile/save':
                         parent._handle_save_profile(self, body)
                     else:
@@ -715,6 +719,12 @@ class DashboardServer:
                                                 logger.info(f"Updated channel_mode to {mode}")
                                             else:
                                                 logger.warning(f"Invalid channel_mode value: {mode}")
+                                        
+                                        # Handle clawsociety_enabled update
+                                        if "clawsociety_enabled" in body:
+                                            config.clawsociety_enabled = bool(body["clawsociety_enabled"])
+                                            save_config(config)
+                                            logger.info(f"Updated clawsociety_enabled to {config.clawsociety_enabled}")
 
                                 except Exception as e:
                                     success = False
@@ -1052,7 +1062,9 @@ class DashboardServer:
                 "providers_catalog": providers_catalog,
                 "llm_callpoints": llm_callpoints,
                 "llm_routes": llm_routes,
-                "raw_config": raw_config_content
+                "raw_config": raw_config_content,
+                "clawsocial_connections": getattr(config, "clawsocial_connections", {}),
+                "clawsociety_enabled": getattr(config, "clawsociety_enabled", False)
             }
             logger.debug("Get config: %s", config_data)
             return config_data
@@ -1103,7 +1115,9 @@ class DashboardServer:
                         "description": "Dashboard 内置聊天功能"
                     }
                 ],
-                "llm_routes": {}
+                "llm_routes": {},
+                "clawsocial_connections": {},
+                "clawsociety_enabled": False
             }
 
     def _get_translations(self, lang: str) -> dict:
@@ -1560,7 +1574,8 @@ class DashboardServer:
                         }
                         for name, server in config.tools.mcp_servers.items()
                     }
-                }
+                },
+                "clawsocial_connections": config.clawsocial_connections
             }, ensure_ascii=False).encode('utf-8'))
         except Exception as e:
             logger.error(f"Failed to get config: {e}")
@@ -1593,6 +1608,71 @@ class DashboardServer:
             handler.send_header('Content-Type', 'application/json')
             handler.end_headers()
             handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_save_clawsocial_connections(self, handler, body):
+        """保存 Clawsocial 连接配置"""
+        try:
+            from crabclaw.config.loader import load_config, save_config
+            
+            config = load_config()
+            
+            if "connections" in body:
+                config.clawsocial_connections = body["connections"]
+            
+            save_config(config)
+            
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": True, "message": "Clawsocial 连接配置保存成功"}, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            logger.error(f"Failed to save clawsocial connections: {e}")
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode('utf-8'))
+
+    def _handle_test_clawsocial_connection(self, handler, body):
+        """测试 Clawsocial 连接"""
+        import httpx
+        try:
+            url = body.get("url", "")
+            if not url:
+                handler.send_response(400)
+                handler.send_header('Content-Type', 'application/json')
+                handler.end_headers()
+                handler.wfile.write(json.dumps({"success": False, "error": "请提供 Clawsocial URL"}, ensure_ascii=False).encode('utf-8'))
+                return
+            
+            # 测试连接到 Clawsocial
+            response = httpx.get(f"{url.rstrip('/')}/v1/registry/search", timeout=5.0)
+            if response.status_code >= 200 and response.status_code < 300:
+                handler.send_response(200)
+                handler.send_header('Content-Type', 'application/json')
+                handler.end_headers()
+                handler.wfile.write(json.dumps({
+                    "success": True,
+                    "status": "connected",
+                    "description": f"连接成功，响应状态码：{response.status_code}"
+                }, ensure_ascii=False).encode('utf-8'))
+            else:
+                handler.send_response(200)
+                handler.send_header('Content-Type', 'application/json')
+                handler.end_headers()
+                handler.wfile.write(json.dumps({
+                    "success": True,
+                    "status": "disconnected",
+                    "description": f"连接失败，响应状态码：{response.status_code}"
+                }, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.end_headers()
+            handler.wfile.write(json.dumps({
+                "success": True,
+                "status": "disconnected",
+                "description": f"连接失败：{str(e)}"
+            }, ensure_ascii=False).encode('utf-8'))
 
     def _handle_save_profile(self, handler, body):
         """保存基本画像信息到 config.json 和 SOUL.md"""

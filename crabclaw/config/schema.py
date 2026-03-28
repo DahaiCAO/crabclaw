@@ -367,7 +367,8 @@ class Config(BaseSettings):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     language: str = "en"  # Language code (e.g., "en", "zh")
     clawsociety_enabled: bool = False  # Enable/disable connection to ClawSociety (Social vs Solo mode)
-    clawsocial_url: str = "http://127.0.0.1:8000"  # URL for ClawSociety/ClawSocialGraph
+    clawsocial_url: str = "http://127.0.0.1:8000"  # URL for ClawSociety/ClawSocialGraph (legacy)
+    clawsocial_connections: dict[str, dict[str, Any]] = Field(default_factory=dict)  # Multiple ClawSocial connections: {conn_id: {"enabled": bool, "url": str, "status": "connected"|"disconnected"|"unknown", "description": str}}
     llm_routes: dict[str, str] = Field(default_factory=dict)
     provider_test_status: dict[str, bool] = Field(default_factory=dict)  # Track provider test results
     channel_mode: str = "multi"  # Channel communication mode: "multi" (multi-channel subscription) or "single" (single-channel subscription)

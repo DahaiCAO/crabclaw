@@ -878,6 +878,7 @@ menuItems.forEach(item => {
       loadConfig();
     } else if (sectionId === 'settings') {
       loadConfig();
+      loadToolConfig();
     } else if (sectionId === 'portrait') {
       // Data will be updated by WebSocket message
     } else if (sectionId === 'prompt-evolution' || sectionId === 'overview') {
@@ -1030,6 +1031,11 @@ async function loadToolConfig() {
       if (data.tools.mcp_servers) {
         renderMCPServers(data.tools.mcp_servers);
         currentMCPServers = data.tools.mcp_servers;
+      }
+      
+      if (data.clawsocial_connections) {
+        renderClawsocialConnections(data.clawsocial_connections);
+        currentClawsocialConnections = data.clawsocial_connections;
       }
     }
   } catch (e) {
@@ -1229,6 +1235,236 @@ async function saveMCPServers() {
   }
 }
 
+let currentClawsocialConnections = {};
+
+function renderClawsocialConnections(connections) {
+  const connectionsList = document.getElementById('clawsocial-connections-list');
+  if (!connectionsList) return;
+  
+  connectionsList.innerHTML = '';
+  
+  const connectionIds = Object.keys(connections);
+  if (connectionIds.length === 0) {
+    connectionsList.innerHTML = '<div class="skill-item empty"><div class="skill-info"><div class="skill-name">没有配置 Clawsocial 连接</div></div></div>';
+    return;
+  }
+  
+  connectionIds.forEach(connId => {
+    const connection = connections[connId];
+    const connItem = document.createElement('div');
+    connItem.className = 'skill-item';
+    
+    const connIcon = document.createElement('div');
+    connIcon.className = 'skill-icon';
+    connIcon.textContent = '🌐';
+    
+    const connInfo = document.createElement('div');
+    connInfo.className = 'skill-info';
+    
+    const connName = document.createElement('div');
+    connName.className = 'skill-name';
+    connName.textContent = connId;
+    
+    const connDesc = document.createElement('div');
+    connDesc.className = 'skill-description';
+    connDesc.textContent = connection.url + (connection.enabled ? ' (已启用)' : ' (已禁用)');
+    connInfo.appendChild(connName);
+    connInfo.appendChild(connDesc);
+    
+    const statusContainer = document.createElement('div');
+    statusContainer.style.marginTop = '4px';
+    statusContainer.style.display = 'flex';
+    statusContainer.style.alignItems = 'center';
+    statusContainer.style.gap = '8px';
+    
+    const statusBadge = document.createElement('span');
+    statusBadge.style.padding = '2px 8px';
+    statusBadge.style.borderRadius = '12px';
+    statusBadge.style.fontSize = '12px';
+    statusBadge.style.fontWeight = '500';
+    
+    if (connection.status === 'connected') {
+      statusBadge.style.backgroundColor = '#d4edda';
+      statusBadge.style.color = '#155724';
+      statusBadge.textContent = '✓ 已连接';
+    } else if (connection.status === 'disconnected') {
+      statusBadge.style.backgroundColor = '#f8d7da';
+      statusBadge.style.color = '#721c24';
+      statusBadge.textContent = '✗ 已断开';
+    } else {
+      statusBadge.style.backgroundColor = '#fff3cd';
+      statusBadge.style.color = '#856404';
+      statusBadge.textContent = '? 未知';
+    }
+    
+    statusContainer.appendChild(statusBadge);
+    
+    if (connection.description) {
+      const statusText = document.createElement('span');
+      statusText.style.fontSize = '12px';
+      statusText.style.color = connection.status === 'disconnected' ? '#dc3545' : '#666';
+      statusText.textContent = connection.description;
+      statusContainer.appendChild(statusText);
+    }
+    
+    connInfo.appendChild(statusContainer);
+    
+    const connActions = document.createElement('div');
+    connActions.className = 'skill-actions';
+    
+    const testBtn = document.createElement('button');
+    testBtn.className = 'btn-icon';
+    testBtn.textContent = '🔍';
+    testBtn.title = '测试连接';
+    testBtn.onclick = () => testClawsocialConnection(connId, connection);
+    
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-icon';
+    editBtn.textContent = '✏️';
+    editBtn.title = '编辑';
+    editBtn.onclick = () => editClawsocialConnection(connId, connection);
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-icon';
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.title = '删除';
+    deleteBtn.onclick = () => deleteClawsocialConnection(connId);
+    
+    connActions.appendChild(testBtn);
+    connActions.appendChild(editBtn);
+    connActions.appendChild(deleteBtn);
+    
+    connItem.appendChild(connIcon);
+    connItem.appendChild(connInfo);
+    connItem.appendChild(connActions);
+    
+    connectionsList.appendChild(connItem);
+  });
+}
+
+async function testClawsocialConnection(connId, connection) {
+  showNotification('正在测试连接...', 'info');
+  try {
+    const response = await fetch('/api/config/clawsocial-connection/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: connection.url })
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      currentClawsocialConnections[connId].status = data.status;
+      currentClawsocialConnections[connId].description = data.description;
+      renderClawsocialConnections(currentClawsocialConnections);
+      showNotification(data.description, data.status === 'connected' ? 'success' : 'error');
+    } else {
+      showNotification(data.error || '测试连接失败', 'error');
+    }
+  } catch (e) {
+    console.error('Failed to test connection:', e);
+    showNotification('测试连接失败', 'error');
+  }
+}
+
+function editClawsocialConnection(connId, connection) {
+  showClawsocialConnectionModal(connId, connection);
+}
+
+function deleteClawsocialConnection(connId) {
+  if (confirm(`确定要删除 Clawsocial 连接 "${connId}" 吗？`)) {
+    delete currentClawsocialConnections[connId];
+    saveClawsocialConnections();
+  }
+}
+
+function showClawsocialConnectionModal(connId = null, connection = null) {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div class="modal-title">${connId ? '编辑 Clawsocial 连接' : '添加 Clawsocial 连接'}</div>
+        <button class="modal-close" data-dismiss="modal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>连接名称</label>
+          <input type="text" id="clawsocial-conn-name" placeholder="例如：本地社会网络" value="${connId || ''}" />
+        </div>
+        <div class="form-group">
+          <label>Clawsocial 网址</label>
+          <input type="text" id="clawsocial-conn-url" placeholder="http://127.0.0.1:8000" value="${connection?.url || 'http://127.0.0.1:8000'}" />
+        </div>
+        <div class="form-group">
+          <label>是否融入社会</label>
+          <label class="switch">
+            <input type="checkbox" id="clawsocial-conn-enabled" ${connection?.enabled ? 'checked' : ''} />
+            <span class="slider-round"></span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">取消</button>
+        <button class="btn btn-primary" id="save-clawsocial-conn-btn">保存</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  const closeButtons = modal.querySelectorAll('[data-dismiss="modal"]');
+  closeButtons.forEach(btn => btn.addEventListener('click', () => modal.remove()));
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
+  
+  const saveBtn = document.getElementById('save-clawsocial-conn-btn');
+  saveBtn.onclick = () => {
+    const newConnId = document.getElementById('clawsocial-conn-name').value.trim();
+    if (!newConnId) {
+      showNotification('请输入连接名称', 'error');
+      return;
+    }
+    
+    const newConnection = {
+      enabled: document.getElementById('clawsocial-conn-enabled').checked,
+      url: document.getElementById('clawsocial-conn-url').value.trim() || 'http://127.0.0.1:8000',
+      status: connection?.status || 'unknown',
+      description: connection?.description || ''
+    };
+    
+    if (connId && connId !== newConnId) {
+      delete currentClawsocialConnections[connId];
+    }
+    
+    currentClawsocialConnections[newConnId] = newConnection;
+    modal.remove();
+    saveClawsocialConnections();
+  };
+}
+
+async function saveClawsocialConnections() {
+  try {
+    const response = await fetch('/api/config/clawsocial-connections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connections: currentClawsocialConnections })
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      showNotification(data.message, 'success');
+      renderClawsocialConnections(currentClawsocialConnections);
+    } else {
+      showNotification(data.error || '保存失败', 'error');
+    }
+  } catch (e) {
+    console.error('Failed to save clawsocial connections:', e);
+    showNotification('保存失败', 'error');
+  }
+}
+
 async function saveWebSearch() {
   const braveApiKey = document.getElementById('brave-api-key');
   const webSearchProxy = document.getElementById('web-search-proxy');
@@ -1356,6 +1592,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const addMCPServerBtn = document.getElementById('add-mcp-server');
   if (addMCPServerBtn) {
     addMCPServerBtn.addEventListener('click', () => showMCPServerModal());
+  }
+  
+  // Add Clawsocial connection button
+  const addClawsocialConnectionBtn = document.getElementById('add-clawsocial-connection-btn');
+  if (addClawsocialConnectionBtn) {
+    addClawsocialConnectionBtn.addEventListener('click', () => showClawsocialConnectionModal());
   }
 });
 
@@ -3081,7 +3323,8 @@ function initSettingsSync() {
     // Remaining fields in Settings
     { id: 'set-save-interval', key: 'save_interval', type: 'input' },
     { id: 'set-push-interval', key: 'push_interval', type: 'input' },
-    { id: 'set-audit-enabled', key: 'audit_enabled', type: 'change', isCheck: true }
+    { id: 'set-audit-enabled', key: 'audit_enabled', type: 'change', isCheck: true },
+    { id: 'clawsociety-enabled', key: 'clawsociety_enabled', type: 'change', isCheck: true }
   ];
 
   syncElements.forEach(item => {
@@ -3226,6 +3469,7 @@ function renderSettings(config) {
   safeUpdate('set-save-interval', config.save_interval || 60);
   safeUpdate('set-push-interval', config.state_push_interval || 1.0);
   safeUpdate('set-audit-enabled', !!config.audit_enabled, 'checked');
+  safeUpdate('clawsociety-enabled', !!config.clawsociety_enabled, 'checked');
 
   if (config.language) {
     const lang = config.language;
@@ -3427,6 +3671,11 @@ function renderSettings(config) {
       item.appendChild(fields);
       routingList.appendChild(item);
     });
+  }
+
+  if (config.clawsocial_connections) {
+    renderClawsocialConnections(config.clawsocial_connections);
+    currentClawsocialConnections = config.clawsocial_connections;
   }
 }
 
