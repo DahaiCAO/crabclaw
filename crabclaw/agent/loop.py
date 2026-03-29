@@ -84,7 +84,7 @@ class IOProcessor:
             self._workspace = None
             self._channel_mode = "multi"
         else:
-            self._workspace = getattr(config, "workspace_path", None)
+            self._workspace = getattr(config, "expanded_workspace_path", None)
 
         # Hard override if library is missing
         if not CLAWLINK_AVAILABLE:
@@ -301,17 +301,8 @@ class IOProcessor:
                     if not content:
                         continue
 
-                    if reply_scope:
-                        await self.broadcast_manager.publish(
-                            scope=reply_scope,
-                            message={
-                                "type": "agent_reply",
-                                "content": content,
-                                "timestamp": time.time(),
-                                "request_id": request_id,
-                            },
-                        )
-                        logger.info(f"[IO] Published agent_reply to scope {reply_scope}, content_length={len(content)}")
+                    # 停止在这里发布 agent_reply，让 Scheduler 来处理所有 broadcast 消息发布
+                    # 避免重复发布和可能的时序问题
 
                     outbound_targets = self._collect_outbound_targets(
                         reply_scope=reply_scope,
@@ -395,14 +386,37 @@ class IOProcessor:
                     # 如果没有 origin，尝试使用 source_channel 和 source_chat_id
                     if source_channel and source_chat_id:
                         outbound_targets.append((source_channel, source_chat_id))
-            return outbound_targets
-        if ":" in recipient and not recipient.startswith("did:"):
-            ch, target_chat = recipient.split(":", 1)
-            if ch and target_chat:
-                return [(ch, target_chat)]
-        if source_channel and source_chat_id:
-            return [(source_channel, source_chat_id)]
-        return outbound_targets
+        
+        # 确保始终能发送回 dashboard（如果没有其他目标）
+        if not outbound_targets:
+            # 如果没有配置任何渠道，至少发送回 dashboard
+            if origin and origin[0] == "dashboard":
+                outbound_targets.append((origin[0], origin[1]))
+            elif source_channel == "dashboard":
+                outbound_targets.append((source_channel, source_chat_id or "direct"))
+            else:
+                # 默认添加 dashboard 作为目标
+                outbound_targets.append(("dashboard", "direct"))
+        
+        # 检查是否已经有 dashboard 目标，没有的话添加
+        has_dashboard = any(ch == "dashboard" for ch, _ in outbound_targets)
+        if not has_dashboard:
+            if origin and origin[0] == "dashboard":
+                outbound_targets.append((origin[0], origin[1]))
+            elif source_channel == "dashboard":
+                outbound_targets.append((source_channel, source_chat_id or "direct"))
+            else:
+                outbound_targets.append(("dashboard", "direct"))
+        
+        # 去重
+        seen = set()
+        unique_targets = []
+        for target in outbound_targets:
+            if target not in seen:
+                seen.add(target)
+                unique_targets.append(target)
+        
+        return unique_targets
 
     @staticmethod
     def _make_event_id(prefix: str, payload: dict) -> str:

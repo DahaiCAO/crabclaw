@@ -457,6 +457,7 @@ class DashboardServer:
                                         "source_channel": "dashboard",
                                         "chat_id": "direct",
                                         "sender_id": user_id, # Authenticated user ID
+                                        "scope": user_id, # 明确包含 scope 字段，确保 IOProcessor 能正确获取
                                         "content": message_content,
                                         "timestamp": time.time()
                                     }
@@ -1239,10 +1240,9 @@ class DashboardServer:
             }
 
     def _get_workspace_path(self) -> str:
+        """返回 DashboardServer 已有的 workspace 路径，确保使用正确的实例工作空间"""
         try:
-            from crabclaw.config.loader import load_config
-            config = load_config()
-            return str(config.expanded_workspace_path)
+            return str(self.workspace)
         except Exception:
             return ""
 
@@ -1250,11 +1250,7 @@ class DashboardServer:
         try:
             from pathlib import Path
             import time
-            workspace_path = self._get_workspace_path()
-            if not workspace_path:
-                return []
-
-            workspace = Path(workspace_path)
+            workspace = self.workspace
             files = []
 
             # Directories to scan for md and py files
@@ -1300,11 +1296,7 @@ class DashboardServer:
     def _get_file_content(self, file_name: str) -> str:
         try:
             from pathlib import Path
-            workspace_path = self._get_workspace_path()
-            if not workspace_path:
-                return ""
-
-            workspace = Path(workspace_path)
+            workspace = self.workspace
             logger.debug(f"Reading file: {file_name} from workspace: {workspace}")
 
             # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
@@ -1342,11 +1334,7 @@ class DashboardServer:
     def _save_file(self, file_name: str, content: str) -> bool:
         try:
             from pathlib import Path
-            workspace_path = self._get_workspace_path()
-            if not workspace_path:
-                return False
-
-            workspace = Path(workspace_path)
+            workspace = self.workspace
             logger.debug(f"Saving file: {file_name}, content length: {len(content)} to workspace: {workspace}")
 
             # Handle files with directory prefix (e.g., "memory/file.md" or "sapiens/agent.py")
@@ -1634,7 +1622,8 @@ class DashboardServer:
 
     def _handle_test_clawsocial_connection(self, handler, body):
         """测试 Clawsocial 连接"""
-        import httpx
+        import requests
+        import traceback
         try:
             url = body.get("url", "")
             if not url:
@@ -1644,8 +1633,13 @@ class DashboardServer:
                 handler.wfile.write(json.dumps({"success": False, "error": "请提供 Clawsocial URL"}, ensure_ascii=False).encode('utf-8'))
                 return
             
-            # 测试连接到 Clawsocial
-            response = httpx.get(f"{url.rstrip('/')}/v1/registry/search", timeout=5.0)
+            test_url = f"{url.rstrip('/')}/health"
+            print(f"Testing ClawSocial connection to: {test_url}")
+            
+            # 测试连接到 Clawsocial - 使用 /health 端点，不需要认证
+            response = requests.get(test_url, timeout=5.0)
+            print(f"Response status: {response.status_code}")
+            
             if response.status_code >= 200 and response.status_code < 300:
                 handler.send_response(200)
                 handler.send_header('Content-Type', 'application/json')
@@ -1662,16 +1656,18 @@ class DashboardServer:
                 handler.wfile.write(json.dumps({
                     "success": True,
                     "status": "disconnected",
-                    "description": f"连接失败，响应状态码：{response.status_code}"
+                    "description": f"连接失败，响应状态码：{response.status_code}, 响应内容：{response.text[:200]}"
                 }, ensure_ascii=False).encode('utf-8'))
         except Exception as e:
+            print(f"Error testing connection: {str(e)}")
+            print(traceback.format_exc())
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/json')
             handler.end_headers()
             handler.wfile.write(json.dumps({
                 "success": True,
                 "status": "disconnected",
-                "description": f"连接失败：{str(e)}"
+                "description": f"连接失败：{str(e)}\n{traceback.format_exc()[:500]}"
             }, ensure_ascii=False).encode('utf-8'))
 
     def _handle_save_profile(self, handler, body):
@@ -1700,8 +1696,8 @@ class DashboardServer:
             
             save_config(config)
             
-            # 保存到 SOUL.md 的头部
-            workspace_path = config.expanded_workspace_path
+            # 保存到 SOUL.md 的头部 - 使用 DashboardServer 自己的 workspace 属性，避免配置加载问题
+            workspace_path = self.workspace
             soul_md_path = workspace_path / "nature" / "SOUL.md"
             
             # 如果 workspace 中没有 SOUL.md，使用模板
