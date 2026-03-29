@@ -74,7 +74,8 @@ cat > "$CONFIG_FILE" << EOF
       "model": "anthropic/claude-3-5-sonnet-20241022",
       "provider": "openrouter",
       "maxToolIterations": 10,
-      "contextWindowTokens": 8000
+      "contextWindowTokens": 8000,
+      "workspace": "$INSTANCE_DIR/workspace"
     }
   },
   "tools": {
@@ -146,7 +147,7 @@ cat > "$CONFIG_FILE" << EOF
     "wsPort": $DASHBOARD_WS_PORT,
     "host": "127.0.0.1"
   },
-  "workspacePath": "$INSTANCE_DIR/workspace"
+  "workspace_path": "$INSTANCE_DIR/workspace"
 }
 EOF
 

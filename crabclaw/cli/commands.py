@@ -24,16 +24,28 @@ from crabclaw.config.schema import Config
 from crabclaw.i18n.translator import detect_system_language, set_language, translate
 from crabclaw.utils.helpers import sync_workspace_templates
 
-# Load config and set language (prefer system locale when config is default-en)
-config = load_config()
-_sys_lang = detect_system_language()
-_cfg_lang = getattr(config, "language", "en")
-_preferred_lang = _cfg_lang
-if _cfg_lang not in ("en", "zh"):
-    _preferred_lang = _sys_lang
-elif _cfg_lang == "en" and _sys_lang == "zh":
-    _preferred_lang = "zh"
-set_language(_preferred_lang)
+# Global config - will be initialized properly when first command runs
+_config: Config | None = None
+
+def _init_language_and_config(config_path: str | None = None, workspace: str | None = None) -> Config:
+    """Initialize language and load config with proper multi-instance support."""
+    global _config
+    
+    if _config is None:
+        # Load config
+        _config = _load_runtime_config(config_path, workspace)
+        
+        # Set language based on loaded config
+        _sys_lang = detect_system_language()
+        _cfg_lang = getattr(_config, "language", "en")
+        _preferred_lang = _cfg_lang
+        if _cfg_lang not in ("en", "zh"):
+            _preferred_lang = _sys_lang
+        elif _cfg_lang == "en" and _sys_lang == "zh":
+            _preferred_lang = "zh"
+        set_language(_preferred_lang)
+    
+    return _config
 
 app = typer.Typer(
     name="crabclaw",
@@ -101,8 +113,27 @@ def _load_runtime_config(config_path: str | None = None, workspace: str | None =
         console.print(f"[dim]Using config: {path}[/dim]")
 
     loaded = load_config(path)
+    
+    # Determine workspace path
     if workspace:
-        loaded.workspace_path = workspace
+        # User explicitly specified a workspace
+        resolved_workspace = workspace
+    elif loaded.workspace_path:
+        # Config already has a workspace path
+        resolved_workspace = loaded.workspace_path
+    elif path:
+        # Using custom config, auto-set workspace to config dir / workspace
+        config_parent = path.parent
+        resolved_workspace = str(config_parent / "workspace")
+        console.print(f"[dim]Auto-setting workspace for multi-instance: {resolved_workspace}[/dim]")
+    else:
+        # Use default from agents.defaults.workspace
+        resolved_workspace = loaded.agents.defaults.workspace
+    
+    # Apply the workspace
+    loaded.workspace_path = resolved_workspace
+    loaded.agents.defaults.workspace = resolved_workspace
+    
     return loaded
 
 # ---------------------------------------------------------------------------
@@ -325,6 +356,15 @@ def setup(
             return
     else:
         cfg = Config()
+    
+    # If config is in a custom directory, set workspace paths
+    config_parent = config_file_path.parent
+    if str(config_parent) != str(Path.home() / ".crabclaw"):
+        # This is a multi-instance setup, set workspace paths
+        custom_workspace = str(config_parent / "workspace")
+        cfg.workspace_path = custom_workspace
+        cfg.agents.defaults.workspace = custom_workspace
+        console.print(f"[dim]Auto-setting workspace for multi-instance: {custom_workspace}[/dim]")
 
     # Step 1: Select Language
     total_steps = 9
@@ -1014,7 +1054,7 @@ def gateway(
     from crabclaw.agent.scheduler import BehaviorScheduler
 
     # Load config with optional custom path and workspace override
-    cfg = _load_runtime_config(config, workspace)
+    cfg = _init_language_and_config(config, workspace)
 
     # Override gateway port if provided
     if port != 18790:  # If user specified a non-default port
@@ -1112,11 +1152,11 @@ def gateway(
             raise typer.Exit(1)
         cfg.dashboard.ws_port = dashboard_ws_port
 
-    sync_workspace_templates(cfg.workspace_path)
+    sync_workspace_templates(cfg.expanded_workspace_path)
 
     console.print(translate("cli.gateway.starting", logo=__logo__, port=cfg.gateway.port))
     console.print(f"[dim]Config: {get_config_path()}[/dim]")
-    console.print(f"[dim]Data directory: {cfg.workspace_path.parent}[/dim]")
+    console.print(f"[dim]Data directory: {cfg.expanded_workspace_path.parent}[/dim]")
     console.print(f"[dim]Dashboard (if enabled): http://127.0.0.1:{cfg.dashboard.http_port}/[/dim]")
 
     # Initialize the main scheduler, which will be responsible for managing all engines
@@ -1140,7 +1180,7 @@ def gateway(
         height=float(cfg.height),
         weight=float(cfg.weight),
         hobbies=cfg.hobbies,
-        workspace_path=cfg.workspace_path
+        workspace_path=cfg.expanded_workspace_path
     )
     scheduler = BehaviorScheduler(cfg, sapiens_core=sapiens_core)
     # Pass the tool registry to the decision engine

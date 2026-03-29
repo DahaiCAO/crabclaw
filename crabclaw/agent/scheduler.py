@@ -61,7 +61,7 @@ class BehaviorScheduler:
         self.enable_dashboard = enable_dashboard
         lang = getattr(config, "language", None) or detect_system_language()
         set_language(lang)
-        self.workspace = config.workspace_path
+        self.workspace = config.expanded_workspace_path
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.state_file = self.workspace / "internal_state.json"
         self.audit_log_dir = self.workspace / "audit"

@@ -94,7 +94,7 @@ class DashboardServer:
         try:
             from crabclaw.config.loader import load_config
             config = load_config()
-            return Path(config.workspace_path).expanduser().resolve()
+            return config.expanded_workspace_path
         except Exception:
             return Path.cwd()
 
@@ -927,7 +927,7 @@ class DashboardServer:
             from crabclaw.agent.skills import SkillsLoader
 
             config = load_config()
-            workspace = config.workspace_path
+            workspace = config.expanded_workspace_path
 
             # Get the built-in skills directory (crabclaw/skills)
             builtin_skills_dir = Path(__file__).parent.parent / "skills"
@@ -1041,7 +1041,7 @@ class DashboardServer:
             # Get workspace safely
             workspace = ""
             try:
-                workspace = str(config.workspace_path)
+                workspace = str(config.expanded_workspace_path)
             except Exception as e:
                 logger.warning("Failed to get workspace: %s", e)
 
@@ -1242,7 +1242,7 @@ class DashboardServer:
         try:
             from crabclaw.config.loader import load_config
             config = load_config()
-            return str(config.workspace_path)
+            return str(config.expanded_workspace_path)
         except Exception:
             return ""
 
@@ -1409,7 +1409,7 @@ class DashboardServer:
                 if hasattr(self, "_processor") and hasattr(self._processor, "sessions"):
                     session = self._processor.sessions.get_or_create("dashboard", user_scope=user_id)
                 else:
-                    session_manager = SessionManager(config.workspace_path)
+                    session_manager = SessionManager(config.expanded_workspace_path)
                     session = session_manager.get_or_create("dashboard", user_scope=user_id)
 
             # Convert messages to a simpler format for the frontend
@@ -1701,7 +1701,7 @@ class DashboardServer:
             save_config(config)
             
             # 保存到 SOUL.md 的头部
-            workspace_path = Path(config.workspace_path).expanduser().resolve()
+            workspace_path = config.expanded_workspace_path
             soul_md_path = workspace_path / "nature" / "SOUL.md"
             
             # 如果 workspace 中没有 SOUL.md，使用模板

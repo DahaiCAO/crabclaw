@@ -107,7 +107,7 @@ class BaseChannel(ABC):
             from crabclaw.user.manager import UserManager
 
             config = load_config()
-            manager = UserManager(config.workspace_path)
+            manager = UserManager(config.expanded_workspace_path)
             resolved = manager.resolve_user_by_identity(self.name, str(sender_id))
             if resolved:
                 return resolved

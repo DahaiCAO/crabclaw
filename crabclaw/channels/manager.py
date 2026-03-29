@@ -30,7 +30,7 @@ class ChannelManager:
         self.channels: dict[str, BaseChannel] = {}
         self.channel_tasks: dict[str, asyncio.Task] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self.user_manager = UserManager(config.workspace_path)
+        self.user_manager = UserManager(config.expanded_workspace_path)
         self._route_map: dict[tuple[str, str], str] = {}
         self._instance_routes: dict[str, set[tuple[str, str]]] = {}
 

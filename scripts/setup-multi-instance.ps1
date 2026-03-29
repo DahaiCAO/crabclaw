@@ -71,7 +71,8 @@ $configContent = @"
       "model": "anthropic/claude-3-5-sonnet-20241022",
       "provider": "openrouter",
       "maxToolIterations": 10,
-      "contextWindowTokens": 8000
+      "contextWindowTokens": 8000,
+      "workspace": "$($InstanceDir.Replace('\', '\\'))\\workspace"
     }
   },
   "tools": {
@@ -143,7 +144,7 @@ $configContent = @"
     "wsPort": $DashboardWsPort,
     "host": "127.0.0.1"
   },
-  "workspacePath": "$($InstanceDir.Replace('\', '\\'))\\workspace"
+  "workspace_path": "$($InstanceDir.Replace('\', '\\'))\\workspace"
 }
 "@
 

@@ -372,10 +372,13 @@ class Config(BaseSettings):
     llm_routes: dict[str, str] = Field(default_factory=dict)
     provider_test_status: dict[str, bool] = Field(default_factory=dict)  # Track provider test results
     channel_mode: str = "multi"  # Channel communication mode: "multi" (multi-channel subscription) or "single" (single-channel subscription)
+    workspace_path: str | None = None  # Workspace path (for multi-instance support)
 
     @property
-    def workspace_path(self) -> Path:
+    def expanded_workspace_path(self) -> Path:
         """Get expanded workspace path."""
+        if self.workspace_path:
+            return Path(self.workspace_path).expanduser()
         return Path(self.agents.defaults.workspace).expanduser()
 
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
@@ -460,7 +463,7 @@ class Config(BaseSettings):
         from crabclaw.providers.registry import find_by_name
         from crabclaw.providers.base import LLMProvider
         from crabclaw.utils.audit_logger import AuditEventType, get_audit_logger_for_dir
-        workspace_path = self.workspace_path
+        workspace_path = self.expanded_workspace_path
         user_prefix = "user:"
 
         class _AuditedProvider(LLMProvider):
